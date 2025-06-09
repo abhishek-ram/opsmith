@@ -5,13 +5,19 @@ import typer
 from opsmith.repo_map import RepoMap
 
 app = typer.Typer()
+state = {"verbose": False}
 
 
 @app.callback()
-def main():
+def main(
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output for repo map generation."
+    ),
+):
     """
     AI Devops engineer in your terminal.
     """
+    state["verbose"] = verbose
 
 
 @app.command()
@@ -20,11 +26,7 @@ def analyse():
 
 
 @app.command()
-def repomap(
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Enable verbose output for repo map generation."
-    ),
-):
+def repomap():
     """
     Generates a map of the repository, showing important files and code elements.
     """
@@ -32,7 +34,7 @@ def repomap(
 
     repo_mapper = RepoMap(
         root=current_dir_str,
-        verbose=verbose,
+        verbose=state["verbose"],
     )
     repo_map_str = repo_mapper.get_repo_map()
 
