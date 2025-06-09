@@ -194,4 +194,4 @@ cython_debug/
 .cursorindexingignore
 
 # Aider
-.aider*history*
+.aider*

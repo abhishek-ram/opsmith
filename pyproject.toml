@@ -1,6 +1,43 @@
 [project]
 name = "opsmith"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13"
-dependencies = []
+description = "Opsmith is an AI devops engineer in your terminal"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python",
+    "Topic :: Software Development",
+]
+license = "GPL-3.0-only"
+requires-python = ">=3.10"
+dependencies = [
+    "black>=25.1.0",
+    "gitpython>=3.1.44",
+    "grep-ast>=0.9.0",
+    "networkx>=3.4.2",
+    "tqdm>=4.67.1",
+    "tree-sitter-language-pack>=0.7.3",
+    "typer>=0.16.0",
+]
+
+[project.scripts]
+opsmith = "opsmith.main:app"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["opsmith"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 100
