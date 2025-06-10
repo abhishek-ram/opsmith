@@ -11,7 +11,7 @@ from pygments.lexers import guess_lexer_for_filename
 from pygments.token import Token
 from tqdm import tqdm
 
-from opsmith.git_utils import get_git_tracked_files
+from opsmith.git_repo import GitRepo
 from opsmith.spinner import WaitingSpinner
 
 
@@ -84,6 +84,7 @@ class RepoMap:
         verbose: bool = False,
     ):
         self.root = Path(root).resolve()
+        self.git_repo = GitRepo(self.root)
         self.verbose = verbose
 
         # Initialize tracking variables
@@ -142,7 +143,7 @@ class RepoMap:
         if self.max_map_tokens <= 0:
             return None  # Repo map is disabled
 
-        all_tracked_files_paths = get_git_tracked_files(self.root)
+        all_tracked_files_paths = self.git_repo.get_git_tracked_files()
         if not all_tracked_files_paths:
             if self.verbose:
                 typer.echo("RepoMap: No git-tracked files found.", err=True)
