@@ -1,6 +1,6 @@
 [project]
 name = "opsmith"
-version = "0.1.0"
+version = "0.1.1"
 description = "Opsmith is an AI devops engineer in your terminal"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -23,6 +23,7 @@ dependencies = [
     "networkx>=3.4.2",
     "pydantic>=2.11.5",
     "pydantic-ai[logfire]>=0.2.16",
+    "pyyaml>=6.0.2",
     "tqdm>=4.67.1",
     "tree-sitter-language-pack>=0.7.3",
     "typer>=0.16.0",

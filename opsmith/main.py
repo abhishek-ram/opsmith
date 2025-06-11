@@ -1,6 +1,7 @@
 import os
-from typing import Annotated
+from typing import Annotated, Optional
 
+import logfire
 import typer
 from rich import print
 
@@ -11,7 +12,7 @@ from opsmith.repo_map import RepoMap
 app = typer.Typer()
 
 
-def get_model_config(model: str) -> ModelConfig:
+def parse_model_arg(model: str) -> ModelConfig:
     """
     Fetches the configuration corresponding to the given model name.
 
@@ -69,7 +70,7 @@ def main(
     model: Annotated[
         ModelConfig,
         typer.Option(
-            parser=get_model_config,
+            parser=parse_model_arg,
             help="The LLM model to be used for by the AI Agent.",
         ),
     ],
@@ -83,6 +84,17 @@ def main(
             ),
         ),
     ],
+    logfire_token: Optional[str] = typer.Option(
+        default=None,
+        help=(
+            "Logfire token to be used for logging. If not provided, logs will not be sent to"
+            " Logfire."
+        ),
+    ),
+    src_dir: Optional[str] = typer.Option(
+        default=None,
+        help="Source directory to be used by the command. Defaults to current working directory.",
+    ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose output for repo map generation."
     ),
@@ -90,18 +102,40 @@ def main(
     """
     AI Devops engineer in your terminal.
     """
+    if logfire_token:
+        logfire.configure(token=logfire_token)
 
 
 @app.command()
 def analyse(ctx: typer.Context):
-    print("Analysing your codebase now")
+    """
+    Analyses the codebase to determine its deployment configuration.
+    Identifies services, their languages, types, and frameworks.
+    """
+    print("Analysing your codebase now...")
     analyser = AnalyseRepo(
         model_config=ctx.parent.params["model"],
-        root_dir=os.getcwd(),
+        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
         verbose=ctx.parent.params["verbose"],
+        instrument=bool(ctx.parent.params.get("logfire_token")),
     )
-    analyser.analyse()
-    print("Done")
+    deployment_config = analyser.analyse()
+
+    if deployment_config.services:
+        print("\n[bold green]Identified Deployment Strategy:[/bold green]")
+        for i, service in enumerate(deployment_config.services):
+            print(f"\n[bold cyan]Service {i + 1}:[/bold cyan]")
+            print(f"  Language: {service.language}")
+            if service.language_version:
+                print(f"  Language Version: {service.language_version}")
+            print(f"  Service Type: {service.service_type}")
+            if service.framework:
+                print(f"  Framework: {service.framework}")
+    else:
+        print(
+            "\n[bold yellow]Could not determine deployment strategy or no services found.[/bold"
+            " yellow]"
+        )
 
 
 @app.command()
@@ -109,10 +143,14 @@ def repomap(ctx: typer.Context):
     """
     Generates a map of the repository, showing important files and code elements.
     """
-    current_dir_str = os.getcwd()
+    print("Generating repo map now...")
+    if ctx.parent.params["src_dir"]:
+        current_dir_str = ctx.parent.params["src_dir"]
+    else:
+        current_dir_str = os.getcwd()
 
     repo_mapper = RepoMap(
-        root=current_dir_str,
+        src_dir=current_dir_str,
         verbose=ctx.parent.params["verbose"],
     )
     repo_map_str = repo_mapper.get_repo_map()

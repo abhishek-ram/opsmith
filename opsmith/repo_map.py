@@ -7,10 +7,9 @@ from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 import typer
 from grep_ast import TreeContext, filename_to_lang
 from grep_ast.tsl import get_language, get_parser
-from pygments.lexers import guess_lexer_for_filename
-from pygments.token import Token
 from tqdm import tqdm
 
+from opsmith.constants import ROOT_IMPORTANT_FILES
 from opsmith.git_repo import GitRepo
 from opsmith.spinner import WaitingSpinner
 
@@ -26,42 +25,29 @@ class Tag(NamedTuple):
 REPO_MAP_MESSAGE = "Generating repo map"
 
 
-# Placeholder for a function that filters/prioritizes important files.
-# The original aider function might look for READMEs, configs, etc.
-def filter_important_files(filenames: List[str]) -> List[str]:
-    """
-    Placeholder for a function that filters/prioritizes important files.
-    This version returns a few common ones if found.
-    """
-    priority_files = []
-    for filename_str in filenames:
-        p_filename = Path(filename_str)
-        if p_filename.name.lower() in (
-            "readme.md",
-            "readme",
-            "license",
-            "license.txt",
-            "pyproject.toml",
-            "package.json",
-            "makefile",
-            "dockerfile",
-        ):
-            priority_files.append(filename_str)
-    return priority_files
-
-
 def get_scm_filename(lang: str) -> Optional[Path]:
     """
-    Locates the .scm (tree-sitter query) file for a given language.
-    Opsmith needs to package these query files for this to work robustly,
-    similar to how aider does. The expected location is within the
-    `opsmith` package, under a `queries` directory.
+    Retrieve the filename of the `.scm` (S-expression-based queries) file for the
+    specified programming language from the package's resource directory.
+
+    This function attempts to locate a file corresponding to the given language's
+    tags, stored in the "tree-sitter-languages" subdirectory under the "queries"
+    directory within the package. If the file exists, its corresponding `Path`
+    object is returned. If the file cannot be found or an error occurs while
+    accessing resources, the function returns `None`.
+
+    :param lang: The name of the programming language for which the `.scm` file
+        is being queried.
+    :type lang: str
+    :return: A `Path` object pointing to the `.scm` file if it exists, or `None`
+        if the file is not found or an error occurs.
+    :rtype: Optional[Path]
     """
 
     # Try tree-sitter-language-pack subdir first
     try:
         path = resources.files(__package__).joinpath(
-            "queries", "tree-sitter-language-pack", f"{lang}-tags.scm"
+            "queries", "tree-sitter-languages", f"{lang}-tags.scm"
         )
         if path.is_file():
             return path
@@ -76,33 +62,50 @@ class RepoMap:
 
     def __init__(
         self,
-        root: str,
-        map_tokens: int = 2048,
+        src_dir: str,
+        map_tokens: int = 5120,
+        max_tags_depth: int = 2,
         repo_content_prefix: Optional[
             str
         ] = "This repo map contains a list of files and important symbols.\n\n",
         verbose: bool = False,
     ):
-        self.root = Path(root).resolve()
-        self.git_repo = GitRepo(self.root)
+        """
+        Initializes an instance of the class, which sets up configuration and parameters
+        required for processing a repository. It validates paths, initializes relevant
+        attributes for managing warnings and tag depths, and optionally logs verbose
+        messages if enabled.
+
+        :param src_dir: The directory path of the repository to be processed.
+        :param map_tokens: The maximum number of tokens allowed in the mapping
+            process.
+        :param max_tags_depth: The maximum depth level for tagging content within
+            the repository.
+        :param repo_content_prefix: An optional prefix string that specifies initial
+            details or descriptions before mapping repository content.
+        :param verbose: A flag indicating if detailed logging should be enabled.
+        """
+        self.src_dir = Path(src_dir).resolve()
+        self.git_repo = GitRepo(self.src_dir)
         self.verbose = verbose
 
         # Initialize tracking variables
         self.warned_files = set()
 
         self.max_map_tokens = map_tokens
+        self.max_tags_depth = max_tags_depth
         self.repo_content_prefix = repo_content_prefix if repo_content_prefix is not None else ""
 
         self._warned_missing_scm = set()
         if self.verbose:
-            typer.echo(f"RepoMap initialized for {self.root}")
+            typer.echo(f"RepoMap initialized for {self.src_dir}")
 
     @staticmethod
     def _simple_token_count(text: str) -> int:
         """A very rough estimate of token count."""
         return len(text) // 4  # Common heuristic: 1 token ~ 4 chars
 
-    def token_count(self, text: str) -> int:
+    def _token_count(self, text: str) -> int:
         """
         Estimates token count. For large texts, it samples to speed up.
         Uses a simple character-based heuristic.
@@ -143,7 +146,9 @@ class RepoMap:
         if self.max_map_tokens <= 0:
             return None  # Repo map is disabled
 
-        all_tracked_files_paths = self.git_repo.get_git_tracked_files()
+        all_tracked_files_paths = self.git_repo.get_git_tracked_files(
+            [str(self.src_dir), ":!**/*test*"]
+        )
         if not all_tracked_files_paths:
             if self.verbose:
                 typer.echo("RepoMap: No git-tracked files found.", err=True)
@@ -183,7 +188,7 @@ class RepoMap:
             return None
 
         if self.verbose:
-            num_tokens = self.token_count(files_listing)
+            num_tokens = self._token_count(files_listing)
             typer.echo(
                 f"RepoMap: Final map size {num_tokens / 1024:.1f} k-tokens (estimated)",
                 err=True,
@@ -192,17 +197,39 @@ class RepoMap:
         repo_content = self.repo_content_prefix + files_listing
         return repo_content
 
-    def get_rel_filename(self, filename: str) -> str:
+    def _get_rel_filename(self, filename: str) -> str:
         try:
-            return os.path.relpath(filename, str(self.root))
+            return os.path.relpath(filename, str(self.src_dir))
         except ValueError:  # Handles cross-drive issues on Windows
             return filename  # Return absolute path if relpath fails
 
-    def get_tags(self, filename_abs_str: str, rel_filename_str: str) -> List[Tag]:
-        # Directly get raw tags without caching
-        return list(self.get_tags_raw(filename_abs_str, rel_filename_str))
+    @staticmethod
+    def _filter_important_files(filenames: List[str]) -> List[str]:
+        """
+        Filters out the important files from a given list of filenames by checking their names
+        against a predefined set of important files.
 
-    def get_tags_raw(self, filename_abs_str: str, rel_filename_str: str) -> List[Tag]:
+        Important files are determined by their presence in the `ROOT_IMPORTANT_FILES`.
+
+        :param filenames: List of file paths as strings.
+        :type filenames: List[str]
+
+        :return: A filtered list containing only the important file paths that match
+            the names in `ROOT_IMPORTANT_FILES`.
+        :rtype: List[str]
+        """
+        priority_files = []
+        for filename_str in filenames:
+            p_filename = Path(filename_str)
+            if p_filename.name in ROOT_IMPORTANT_FILES:
+                priority_files.append(filename_str)
+        return priority_files
+
+    def _get_tags(self, filename_abs_str: str, rel_filename_str: str) -> List[Tag]:
+        # Directly get raw tags without caching
+        return list(self._get_tags_raw(filename_abs_str, rel_filename_str))
+
+    def _get_tags_raw(self, filename_abs_str: str, rel_filename_str: str) -> List[Tag]:
         tags = []
         lang = filename_to_lang(filename_abs_str)
         if not lang:
@@ -254,6 +281,7 @@ class RepoMap:
         all_nodes = []
         for tag, nodes in captures.items():
             all_nodes += [(node, tag) for node in nodes]
+
         for node, tag_name_str in all_nodes:
             # Example tag_name_str: "name.definition.function", "name.reference.class"
             if tag_name_str.startswith("name.definition."):
@@ -272,43 +300,15 @@ class RepoMap:
                 tags.append(Tag(*tag_tuple))
                 processed_tags.add(tag_tuple)
 
-        # Fallback to pygments for references if only definitions were found by tree-sitter
-        # This matches aider's logic for languages where SCM files might only provide definitions
-        if "ref" not in saw_kinds and "def" in saw_kinds:
-            try:
-                lexer = guess_lexer_for_filename(filename_abs_str, code)
-                pygments_tokens = list(lexer.get_tokens(code))
-                # Filter for names/identifiers
-                name_tokens = [
-                    tok_val for tok_type, tok_val in pygments_tokens if tok_type in Token.Name
-                ]
-                for token_text in name_tokens:
-                    tag_tuple = (
-                        rel_filename_str,
-                        filename_abs_str,
-                        -1,
-                        token_text,
-                        "ref",
-                    )  # Line -1 for pygments refs
-                    if tag_tuple not in processed_tags:  # Avoid duplicates if somehow caught by TS
-                        tags.append(Tag(*tag_tuple))
-                        processed_tags.add(tag_tuple)
-            except Exception as e:
-                if self.verbose:
-                    typer.echo(
-                        f"RepoMap: Pygments fallback failed for {filename_abs_str}: {e}",
-                        err=True,
-                    )
-
         return tags
 
-    def get_all_tags(
+    def _get_all_tags(
         self,
         all_filenames_abs: List[str],  # All git-tracked files, absolute paths
         progress_callback: Optional[callable] = None,
-    ) -> List[Tag]:
+    ) -> List[Tag | Tuple[str]]:
         """ """
-        definition_tags: List[Tag] = []
+        all_tags: List[Tag | Tuple[str]] = []
         if not all_filenames_abs:
             return []
 
@@ -343,14 +343,18 @@ class RepoMap:
                     self.warned_files.add(filename_abs)
                 continue
 
-            rel_filename = self.get_rel_filename(filename_abs)
+            rel_filename = self._get_rel_filename(filename_abs)
+            if len(Path(rel_filename).parts) <= self.max_tags_depth:
+                file_tags = self._get_tags(filename_abs, rel_filename)
+                file_def_tags = [tag for tag in file_tags if tag.kind == "def"]
+                if file_def_tags:
+                    all_tags.extend(file_def_tags)
+                else:
+                    all_tags.append((rel_filename,))
+            else:
+                all_tags.append((rel_filename,))
 
-            file_tags = self.get_tags(filename_abs, rel_filename)
-            for tag in file_tags:
-                if tag.kind == "def":
-                    definition_tags.append(tag)
-
-        return definition_tags
+        return all_tags
 
     def get_tags_map(
         self,
@@ -360,27 +364,29 @@ class RepoMap:
     ) -> Optional[str]:
         if progress_callback:
             progress_callback(f"{REPO_MAP_MESSAGE}: Ranking tags and files...")
-        tags = self.get_all_tags(
-            all_filenames_abs=all_filenames_abs,  # Pass all files here
-            progress_callback=progress_callback,
+        tags = self._get_all_tags(
+            all_filenames_abs=all_filenames_abs, progress_callback=progress_callback
         )
 
         # Prioritize "special" files (e.g. README) from all_filenames_abs
         # These are added at the beginning of the ranked list if not already effectively there.
         all_rel_filenames = sorted(
-            list(set(self.get_rel_filename(filename) for filename in all_filenames_abs))
+            list(set(self._get_rel_filename(filename) for filename in all_filenames_abs))
         )
 
         # Get relative paths of files already represented by ranked tags
         tags_rel_filenames = set()
         for tag in tags:
-            tags_rel_filenames.add(tag.rel_filename)
+            if isinstance(tag, Tag):
+                tags_rel_filenames.add(tag.rel_filename)
+            else:
+                tags_rel_filenames.add(tag[0])
 
         # Identify special files not already covered by high-ranking tags
         # These are added as (rel_filename,) tuples to ensure their presence.
         special_file_tuples_to_prepend = []
         # Note: filter_important_files returns list of rel_filenames
-        for special_rel_filename in filter_important_files(
+        for special_rel_filename in self._filter_important_files(
             all_rel_filenames
         ):  # Use all_rel_filenames
             if special_rel_filename not in tags_rel_filenames and special_rel_filename:
@@ -443,7 +449,7 @@ class RepoMap:
 
             current_selection = final_item_list[:middle]
             map_text = self.to_tree(current_selection)
-            num_tokens = self.token_count(map_text)
+            num_tokens = self._token_count(map_text)
 
             # Percentage error from target token count
             # Accept if within a certain tolerance (e.g., 15% of max_tokens)
@@ -529,24 +535,26 @@ class RepoMap:
                 # item.filename is absolute path, item.rel_filename is relative
                 file_to_tags[item.rel_filename].append(item)
             else:
-                standalone_files.append(item[0])
+                file_to_tags[item[0]] = []
 
         # Process files with tags
         # Sort by rel_filename for consistent output order
         for rel_filename_sorted, tags_in_file in sorted(file_to_tags.items(), key=lambda x: x[0]):
-            # Need absolute path for render_tree to read file content
-            # Assuming all tags in tags_in_file have the same abs_filename for this rel_filename
-            abs_filename_for_render = tags_in_file[0].filename  # Get abs path from first tag
+            if tags_in_file:
+                output_lines.append(f"\n{rel_filename_sorted}:")
+                # Need absolute path for render_tree to read file content
+                # Assuming all tags in tags_in_file have the same abs_filename for this rel_filename
+                abs_filename_for_render = tags_in_file[0].filename  # Get abs path from first tag
 
-            lines_of_interest = [
-                tag.line for tag in tags_in_file if tag.line >= 0
-            ]  # Valid line numbers
-
-            output_lines.append(f"\n{rel_filename_sorted}:")  # File header
-            rendered_content = self.render_tree(
-                abs_filename_for_render, rel_filename_sorted, lines_of_interest
-            )
-            output_lines.append(rendered_content)
+                lines_of_interest = [
+                    tag.line for tag in tags_in_file if tag.line >= 0
+                ]  # Valid line numbers
+                rendered_content = self.render_tree(
+                    abs_filename_for_render, rel_filename_sorted, lines_of_interest
+                )
+                output_lines.append(rendered_content)
+            else:
+                output_lines.append(f"\n{rel_filename_sorted}\n")
 
         # Process standalone files (those without specific tags to show, just list the filename)
         # These are files that were ranked but either had no tags or their tags weren't high enough.
