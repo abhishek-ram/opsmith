@@ -131,6 +131,8 @@ def analyse(ctx: typer.Context):
             print(f"  Service Type: {service.service_type}")
             if service.framework:
                 print(f"  Framework: {service.framework}")
+            if service.build_tool:
+                print(f"  Build Tool: {service.build_tool}")
     else:
         print(
             "\n[bold yellow]Could not determine deployment strategy or no services found.[/bold"

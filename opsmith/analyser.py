@@ -22,6 +22,13 @@ class ServiceInfo(BaseModel):
     framework: Optional[str] = Field(
         None, description="The primary framework or library used, if any."
     )
+    build_tool: Optional[str] = Field(
+        None,
+        description=(
+            "The build tool used for the service, if identifiable (e.g., 'maven', 'gradle', 'npm',"
+            " 'webpack')."
+        ),
+    )
 
 
 class DeploymentConfig(BaseModel):

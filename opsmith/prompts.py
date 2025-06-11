@@ -13,6 +13,7 @@ Based on this map and the content of relevant files (which you can request using
 2.  `language_version`: The specific version of the language, if identifiable (e.g., "3.9", "17", "ES2020").
 3.  `service_type`: The type of the service. Must be one of: "backend-api", "backend-worker", "frontend", "full_stack".
 4.  `framework`: The primary framework or library used, if any (e.g., "django", "react", "spring boot", "celery").
+5.  `build_tool`: The build tool used for the service, if identifiable (e.g., "maven", "gradle", "npm", "webpack", "pip", "poetry").
 
 Return the information as a list of services.
 * Read the dependencies list to get an idea of potential frameworks.

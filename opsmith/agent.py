@@ -41,6 +41,22 @@ class AgentDeps:
     src_dir: Path
 
 
+def is_duplicate_tool_call(ctx: RunContext[AgentDeps], tool_name: str) -> bool:
+    """"""
+    tool_calls = set()
+    message_parts = [item for message in ctx.messages for item in message.parts]
+    for part in message_parts:
+        if part.part_kind == "tool-call" and part.tool_name == tool_name:
+            tool_args = frozenset(part.args.items()) if isinstance(part.args, dict) else part.args
+            if tool_args in tool_calls:
+                return True
+            else:
+                # logger.debug(f"Tool {tool_def.name} called with arguments: {tool_args}")
+                tool_calls.add(tool_args)
+
+    return False
+
+
 def build_agent(model_config: ModelConfig, instrument: bool = False) -> Agent:
     agent = Agent(
         model=model_config.model_name_abs,
@@ -50,7 +66,7 @@ def build_agent(model_config: ModelConfig, instrument: bool = False) -> Agent:
     )
 
     @agent.tool
-    def run(ctx: RunContext[AgentDeps], filename: str) -> str:
+    def read_file_content(ctx: RunContext[AgentDeps], filename: str) -> str:
         """
         Reads and returns the content of a specified file from the repository.
         Use this to understand file structures, dependencies, or specific configurations.
@@ -63,6 +79,11 @@ def build_agent(model_config: ModelConfig, instrument: bool = False) -> Agent:
         Returns:
             The content of the file as a string, or an error message if the file cannot be read.
         """
+        if is_duplicate_tool_call(ctx, "read_file_content"):
+            return (
+                f"Error: The tool 'read_file_content' has already been called for {filename} "
+                "in this conversation."
+            )
         if Path(filename).is_absolute():
             return "Error: Absolute file paths are not allowed. Please provide a relative path."
 
