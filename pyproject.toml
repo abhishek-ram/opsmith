@@ -1,5 +1,5 @@
 [project]
-name = "opsmith"
+name = "opsmith-cli"
 version = "0.1.1"
 description = "Opsmith is an AI devops engineer in your terminal"
 classifiers = [
@@ -35,8 +35,8 @@ opsmith = "opsmith.main:app"
 [tool.setuptools]
 include-package-data = true
 
-[tool.setuptools.packages.find]
-include = ["opsmith"]
+[tool.hatch.build.targets.wheel]
+packages = ["opsmith"]
 
 [build-system]
 requires = ["hatchling"]

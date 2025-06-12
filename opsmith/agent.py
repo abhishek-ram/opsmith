@@ -1,10 +1,11 @@
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import List, Literal
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, ModelRetry, RunContext
 
 
 class ModelConfig(BaseModel):
@@ -26,10 +27,15 @@ class ModelConfig(BaseModel):
 
 AVAILABLE_MODELS = [
     ModelConfig(provider="openai", model="gpt-4.1", api_key_prefix="OPENAI"),
-    ModelConfig(provider="anthropic", model="claude-3-7-sonnet-latest", api_key_prefix="ANTHROPIC"),
-    ModelConfig(provider="anthropic", model="claude-4-0-sonnet-latest", api_key_prefix="ANTHROPIC"),
+    ModelConfig(
+        provider="anthropic", model="claude-3-7-sonnet-20250219", api_key_prefix="ANTHROPIC"
+    ),
+    ModelConfig(provider="anthropic", model="claude-sonnet-4-20250514", api_key_prefix="ANTHROPIC"),
     ModelConfig(
         provider="google-gla", model="gemini-2.5-pro-preview-05-06", api_key_prefix="GEMINI"
+    ),
+    ModelConfig(
+        provider="google-gla", model="gemini-2.5-pro-preview-06-05", api_key_prefix="GEMINI"
     ),
 ]
 
@@ -47,7 +53,10 @@ def is_duplicate_tool_call(ctx: RunContext[AgentDeps], tool_name: str) -> bool:
     message_parts = [item for message in ctx.messages for item in message.parts]
     for part in message_parts:
         if part.part_kind == "tool-call" and part.tool_name == tool_name:
-            tool_args = frozenset(part.args.items()) if isinstance(part.args, dict) else part.args
+            if isinstance(part.args, dict):
+                tool_args = json.dumps(part.args, sort_keys=True)
+            else:
+                tool_args = part.args
             if tool_args in tool_calls:
                 return True
             else:
@@ -65,38 +74,48 @@ def build_agent(model_config: ModelConfig, instrument: bool = False) -> Agent:
         deps_type=AgentDeps,
     )
 
-    @agent.tool
-    def read_file_content(ctx: RunContext[AgentDeps], filename: str) -> str:
+    @agent.tool(retries=5)
+    def read_file_content(ctx: RunContext[AgentDeps], filenames: List[str]) -> List[str]:
         """
-        Reads and returns the content of a specified file from the repository.
+        Reads and returns the content of specified files from the repository.
         Use this to understand file structures, dependencies, or specific configurations.
-        Provide the relative file path from the repository root.
+        Provide the relative file paths from the repository root.
 
         Args:
             ctx: The run context object containing the dependencies of the agent.
-            filename: The relative path to the file from the repository root.
+            filenames: A list of relative paths to the files from the repository root.
 
         Returns:
-            The content of the file as a string, or an error message if the file cannot be read.
+            A list of strings, where each string is the content of the corresponding file.
+            The order of contents in the list matches the order of filenames in the input.
         """
         if is_duplicate_tool_call(ctx, "read_file_content"):
-            return (
-                f"Error: The tool 'read_file_content' has already been called for {filename} "
-                "in this conversation."
+            raise ModelRetry(
+                "The tool 'read_file_content' has already been called with the exact same list of "
+                "files in this conversation."
             )
-        if Path(filename).is_absolute():
-            return "Error: Absolute file paths are not allowed. Please provide a relative path."
 
-        absolute_file_path = ctx.deps.src_dir.joinpath(filename).resolve()
+        contents = []
+        for filename in filenames:
+            if Path(filename).is_absolute():
+                raise ModelRetry(
+                    f"Absolute file paths are not allowed for '{filename}'. Please provide a"
+                    " relative path."
+                )
 
-        if not str(absolute_file_path).startswith(str(ctx.deps.src_dir)):
-            return f"Error: Access denied. File '{filename}' is outside the repository root."
+            absolute_file_path = ctx.deps.src_dir.joinpath(filename).resolve()
 
-        if not absolute_file_path.is_file():
-            return f"Error: File '{filename}' not found or is not a regular file."
+            if not str(absolute_file_path).startswith(str(ctx.deps.src_dir)):
+                raise ModelRetry(
+                    f"Access denied. File '{filename}' is outside the repository root."
+                )
 
-        with open(absolute_file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-        return content
+            if not absolute_file_path.is_file():
+                raise ModelRetry(f"File '{filename}' not found or is not a regular file.")
+
+            with open(absolute_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            contents.append(content)
+        return contents
 
     return agent

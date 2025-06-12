@@ -3,11 +3,12 @@ from typing import Annotated, Optional
 
 import logfire
 import typer
+import yaml
 from rich import print
 
 from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig
-from opsmith.analyser import AnalyseRepo
 from opsmith.repo_map import RepoMap
+from opsmith.scanner import RepoScanner
 
 app = typer.Typer()
 
@@ -107,37 +108,22 @@ def main(
 
 
 @app.command()
-def analyse(ctx: typer.Context):
+def scan(ctx: typer.Context):
     """
-    Analyses the codebase to determine its deployment configuration.
+    Scans the codebase to determine its deployment configuration.
     Identifies services, their languages, types, and frameworks.
     """
     print("Analysing your codebase now...")
-    analyser = AnalyseRepo(
+    analyser = RepoScanner(
         model_config=ctx.parent.params["model"],
         src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
         verbose=ctx.parent.params["verbose"],
         instrument=bool(ctx.parent.params.get("logfire_token")),
     )
-    deployment_config = analyser.analyse()
+    deployment_config = analyser.scan()
 
-    if deployment_config.services:
-        print("\n[bold green]Identified Deployment Strategy:[/bold green]")
-        for i, service in enumerate(deployment_config.services):
-            print(f"\n[bold cyan]Service {i + 1}:[/bold cyan]")
-            print(f"  Language: {service.language}")
-            if service.language_version:
-                print(f"  Language Version: {service.language_version}")
-            print(f"  Service Type: {service.service_type}")
-            if service.framework:
-                print(f"  Framework: {service.framework}")
-            if service.build_tool:
-                print(f"  Build Tool: {service.build_tool}")
-    else:
-        print(
-            "\n[bold yellow]Could not determine deployment strategy or no services found.[/bold"
-            " yellow]"
-        )
+    print("\n[bold green]Identified Deployment Configuration:[/bold green]")
+    print(yaml.dump(deployment_config.model_dump(mode="json")))
 
 
 @app.command()

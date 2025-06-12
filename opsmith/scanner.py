@@ -7,6 +7,25 @@ from rich import print
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
 from opsmith.prompts import REPO_ANALYSIS_PROMPT_TEMPLATE
 from opsmith.repo_map import RepoMap
+from opsmith.spinner import WaitingSpinner
+
+
+class InfrastructureDependency(BaseModel):
+    """Describes an infrastructure dependency for a service."""
+
+    dependency_type: Literal["database", "cache", "message_queue", "search_engine"] = Field(
+        ..., description="The type of the infrastructure dependency."
+    )
+    provider: str = Field(
+        ...,
+        description=(
+            "The specific provider of the dependency (e.g., 'postgresql', 'redis', 'rabbitmq',"
+            " 'elasticsearch')."
+        ),
+    )
+    version: Optional[str] = Field(
+        None, description="The version of the infrastructure dependency, if identifiable."
+    )
 
 
 class ServiceInfo(BaseModel):
@@ -29,6 +48,10 @@ class ServiceInfo(BaseModel):
             " 'webpack')."
         ),
     )
+    infra_deps: List[InfrastructureDependency] = Field(
+        default_factory=list,
+        description="A list of infrastructure dependencies required by the services.",
+    )
 
 
 class DeploymentConfig(BaseModel):
@@ -39,7 +62,7 @@ class DeploymentConfig(BaseModel):
     )
 
 
-class AnalyseRepo:
+class RepoScanner:
     def __init__(
         self,
         model_config: ModelConfig,
@@ -55,9 +78,9 @@ class AnalyseRepo:
         )
         self.verbose = verbose
 
-    def analyse(self) -> DeploymentConfig:
+    def scan(self) -> DeploymentConfig:
         """
-        Analyses the repository to determine its deployment strategy.
+        Scans the repository to determine its deployment strategy.
 
         Generates a repository map, then uses an AI agent with a file reading tool
         to identify services and their characteristics.
@@ -72,5 +95,9 @@ class AnalyseRepo:
         prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(repo_map_str=repo_map_str)
 
         print("Calling AI agent to analyse the repo and determine deployment strategy...")
-        run_result = self.agent.run_sync(prompt, output_type=DeploymentConfig, deps=self.agent_deps)
+        with WaitingSpinner(text="Waiting for the LLM", delay=0.1):
+            run_result = self.agent.run_sync(
+                prompt, output_type=DeploymentConfig, deps=self.agent_deps
+            )
+
         return run_result.output
