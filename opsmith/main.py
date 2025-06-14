@@ -1,14 +1,20 @@
 import os
 from typing import Annotated, Optional
 
+import google.auth
+import inquirer
 import logfire
 import typer
 import yaml
 from rich import print
 
 from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig
+from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
+from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnum
+from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
 from opsmith.repo_map import RepoMap
 from opsmith.scanner import RepoScanner
+from opsmith.settings import settings
 
 app = typer.Typer()
 
@@ -113,17 +119,84 @@ def scan(ctx: typer.Context):
     Scans the codebase to determine its deployment configuration.
     Identifies services, their languages, types, and frameworks.
     """
-    print("Analysing your codebase now...")
-    analyser = RepoScanner(
-        model_config=ctx.parent.params["model"],
-        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
-        verbose=ctx.parent.params["verbose"],
-        instrument=bool(ctx.parent.params.get("logfire_token")),
-    )
-    deployment_config = analyser.scan()
+    deployer = Deployer()
+    deployment_config = deployer.get_deployment_config()
+    if not deployment_config:
+        print("No existing deployment configuration found. Starting analysis...")
 
-    print("\n[bold green]Identified Deployment Configuration:[/bold green]")
-    print(yaml.dump(deployment_config.model_dump(mode="json")))
+        questions = [
+            inquirer.List(
+                "cloud_provider",
+                message="Select the cloud provider for deployment",
+                choices=[provider.value for provider in CloudProviderEnum],
+            ),
+        ]
+        answers = inquirer.prompt(questions)
+        if not answers:
+            print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
+            raise typer.Exit(code=1)
+
+        selected_provider_value = answers["cloud_provider"]
+        selected_provider_enum = CloudProviderEnum(selected_provider_value)
+
+        print(f"Initializing {selected_provider_enum.name} provider...")
+        provider_class = CLOUD_PROVIDER_REGISTRY[selected_provider_enum]
+
+        try:
+            # Instantiation might raise CloudCredentialsError (e.g. GCPProvider.__init__)
+            provider_instance = provider_class()
+            cloud_details = provider_instance.get_account_details()
+        except CloudCredentialsError as e:
+            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
+            raise typer.Exit(code=1)
+        except Exception as e:  # Catch other unexpected errors
+            print(
+                "[bold red]An unexpected error occurred while initializing cloud provider or"
+                f" fetching details: {e}. Aborting.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+
+        print("Analysing your codebase now...")
+        analyser = RepoScanner(
+            model_config=ctx.parent.params["model"],
+            src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
+            verbose=ctx.parent.params["verbose"],
+            instrument=bool(ctx.parent.params.get("logfire_token")),
+        )
+        service_list_obj = analyser.scan()  # Returns ServiceList (RootModel)
+
+        new_deployment_config = DeploymentConfig(
+            cloud_provider=cloud_details,
+            services=service_list_obj.services,  # Access the list via .services
+        )
+
+        # Save the deployment configuration using the Deployer
+        deployer.save_deployment_config(new_deployment_config)
+
+        print("\n[bold green]Identified Deployment Configuration:[/bold green]")
+        print(yaml.dump(new_deployment_config.model_dump(mode="json")))
+    else:
+        print(
+            "\n[bold yellow]Existing deployment configuration found. To re-scan, delete the"
+            f" existing file at {deployer.config_file_path} and run scan again.[/bold yellow]"
+        )
+        print("\n[bold green]Current Deployment Configuration:[/bold green]")
+        print(yaml.dump(deployment_config.model_dump(mode="json")))
+
+
+@app.command()
+def deploy(ctx: typer.Context):
+    """"""
+    print(google.auth.default())
+    questions = [
+        inquirer.List(
+            "size",
+            message="What size do you need?",
+            choices=["Jumbo", "Large", "Standard", "Medium", "Small", "Micro"],
+        ),
+    ]
+    inquirer.prompt(questions)
+    print(settings.deployments_dir)
 
 
 @app.command()
