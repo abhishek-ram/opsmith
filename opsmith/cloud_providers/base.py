@@ -6,20 +6,20 @@ from pydantic import BaseModel, Field
 
 
 class CloudProviderEnum(enum.Enum):
-    AWS = "aws"
-    GCP = "gcp"
+    AWS = "AWS"
+    GCP = "GCP"
 
 
 class AWSCloudDetail(BaseModel):
-    name: Literal[CloudProviderEnum.AWS] = Field(
-        default=CloudProviderEnum.AWS.value, description="Provider name, 'aws'"
+    name: Literal[CloudProviderEnum.AWS.name] = Field(
+        default=CloudProviderEnum.AWS.name, description="Provider name, 'aws'"
     )
     account_id: str = Field(..., description="AWS Account ID.")
 
 
 class GCPCloudDetail(BaseModel):
-    name: Literal[CloudProviderEnum.GCP] = Field(
-        default=CloudProviderEnum.GCP.value, description="Provider name, 'gcp'"
+    name: Literal[CloudProviderEnum.GCP.name] = Field(
+        default=CloudProviderEnum.GCP.name, description="Provider name, 'gcp'"
     )
     project_id: str = Field(..., description="GCP Project ID.")
 

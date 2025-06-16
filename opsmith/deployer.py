@@ -63,8 +63,8 @@ class DeploymentConfig(BaseModel):
 
 
 class Deployer:
-    def __init__(self):
-        self.deployments_path = Path(settings.deployments_dir)
+    def __init__(self, src_dir: str):
+        self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
         self.config_file_name = "deployment_config.yml"
         self.config_file_path = self.deployments_path / self.config_file_name
 

@@ -119,7 +119,7 @@ def scan(ctx: typer.Context):
     Scans the codebase to determine its deployment configuration.
     Identifies services, their languages, types, and frameworks.
     """
-    deployer = Deployer()
+    deployer = Deployer(ctx.parent.params["src_dir"] or os.getcwd())
     deployment_config = deployer.get_deployment_config()
     if not deployment_config:
         print("No existing deployment configuration found. Starting analysis...")
