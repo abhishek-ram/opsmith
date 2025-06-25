@@ -7,9 +7,13 @@ from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
 from opsmith.cloud_providers.base import CloudProviderDetail
-from opsmith.prompts import DOCKERFILE_GENERATION_PROMPT_TEMPLATE
+from opsmith.prompts import (
+    DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
+    REPO_ANALYSIS_PROMPT_TEMPLATE,
+)
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
+from opsmith.spinner import WaitingSpinner
 
 
 class InfrastructureDependency(BaseModel):
@@ -56,13 +60,18 @@ class ServiceInfo(BaseModel):
     )
 
 
-class DeploymentConfig(BaseModel):
-    """Describes the deployment config for the repository, listing all services."""
+class ServiceList(BaseModel):
+    """List of services discovered within the repository."""
 
-    cloud_provider: CloudProviderDetail = Field(..., discriminator="name")
     services: List[ServiceInfo] = Field(
         ..., description="A list of services identified in the repository."
     )
+
+
+class DeploymentConfig(BaseModel, ServiceList):
+    """Describes the deployment config for the repository, listing all services."""
+
+    cloud_provider: CloudProviderDetail = Field(..., discriminator="name")
 
 
 class DockerfileContent(BaseModel):
@@ -155,3 +164,25 @@ class Deployer:
             print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
 
         print("\n[bold blue]Dockerfile generation complete.[/bold blue]")
+
+    def detect_services(self) -> ServiceList:
+        """
+        Scans the repository to determine the services to be deployed, using the AI agent.
+
+        Generates a repository map, then uses an AI agent with a file reading tool
+        to identify services and their characteristics.
+
+        Returns:
+            A ServiceList object detailing the services to be deployed.
+        """
+        repo_map_str = self.repo_map.get_repo_map()
+        if self.verbose:
+            print("Repo map generated:")
+
+        prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(repo_map_str=repo_map_str)
+
+        print("Calling AI agent to analyse the repo and determine deployment strategy...")
+        with WaitingSpinner(text="Waiting for the LLM", delay=0.1):
+            run_result = self.agent.run_sync(prompt, output_type=ServiceList, deps=self.agent_deps)
+
+        return run_result.output

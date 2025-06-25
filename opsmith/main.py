@@ -12,7 +12,6 @@ from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnum
 from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
 from opsmith.repo_map import RepoMap
-from opsmith.scanner import RepoScanner
 
 app = typer.Typer()
 
@@ -112,12 +111,17 @@ def main(
 
 
 @app.command()
-def scan(ctx: typer.Context):
+def setup(ctx: typer.Context):
     """
-    Scans the codebase to determine its deployment configuration.
+    Setup the deployment configuration for the repository.
     Identifies services, their languages, types, and frameworks.
     """
-    deployer = Deployer(ctx.parent.params["src_dir"] or os.getcwd())
+    deployer = deployer = Deployer(
+        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
+        model_config=ctx.parent.params["model"],
+        verbose=ctx.parent.params["verbose"],
+        instrument=bool(ctx.parent.params.get("logfire_token")),
+    )
     deployment_config = deployer.get_deployment_config()
     if not deployment_config:
         print("No existing deployment configuration found. Starting analysis...")
@@ -154,14 +158,8 @@ def scan(ctx: typer.Context):
             )
             raise typer.Exit(code=1)
 
-        print("Analysing your codebase now...")
-        analyser = RepoScanner(
-            model_config=ctx.parent.params["model"],
-            src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
-            verbose=ctx.parent.params["verbose"],
-            instrument=bool(ctx.parent.params.get("logfire_token")),
-        )
-        service_list_obj = analyser.scan()  # Returns ServiceList (RootModel)
+        print("Scanning your codebase now to detect services, frameworks, and languages...")
+        service_list_obj = deployer.detect_services()
 
         new_deployment_config = DeploymentConfig(
             cloud_provider=cloud_details,
