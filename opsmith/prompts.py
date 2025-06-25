@@ -25,3 +25,47 @@ Return the information as a list of services.
 * Look for configuration files or code that initializes connections to databases, caches, message queues, or search engines.
 * Read as many files as needed until you are sure about the service and infrastructure dependency details.
 """
+
+DOCKERFILE_GENERATION_PROMPT_TEMPLATE = """
+You are an expert DevOps engineer. Your task is to generate a Dockerfile for the
+service described below.
+
+Service Details:
+{service_info_yaml}
+
+Repository Map:
+{repo_map_str}
+
+Your task is to generate an optimized and production-ready Dockerfile for this service.
+After generating the Dockerfile content, you MUST validate it using the `build_dockerfile` tool.
+The `build_dockerfile` tool will first attempt to build the image. If the build is successful,
+it will then attempt to run the image.
+
+Analyze the output from `build_dockerfile`:
+1.  If the **build fails** (indicated by errors in the build output), revise the Dockerfile
+    content based on the error messages and try building again by calling `build_dockerfile`
+    with the updated content.
+2.  If the **build succeeds but running the image fails**, examine the run output.
+    -   If the failure is due to issues like **missing packages, command not found, file not found
+        within the container, or incorrect entrypoint/cmd**, revise the Dockerfile to fix these
+        issues and call `build_dockerfile` again.
+    -   If the failure is due to **missing environment variables, inability to connect to external
+        services (like databases or other APIs), port conflicts, or similar runtime configuration
+        issues that are not part of the Dockerfile's direct responsibility for package installation
+        or command execution**, you can consider the Dockerfile itself valid for this stage.
+Repeat this process until the Dockerfile builds successfully and, if it runs, does not fail due to
+fixable Dockerfile issues (like missing packages or commands).
+
+Ensure the final Dockerfile:
+- Uses an appropriate base image.
+- Copies only necessary files.
+- Sets up the correct working directory.
+- Installs dependencies efficiently.
+- Exposes the correct port (if applicable for the service type, e.g., backend-api, frontend, full_stack).
+- Defines the correct entrypoint or command.
+- Follows Docker best practices (e.g., multi-stage builds if beneficial, non-root user).
+
+Once the Dockerfile is successfully validated (built and, if run, passed the runtime checks for fixable errors)
+with the `build_dockerfile` tool, return only the final, validated Dockerfile content.
+If more information is required at any stage, use the `read_file_content` tool.
+"""

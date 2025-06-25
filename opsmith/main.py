@@ -1,7 +1,6 @@
 import os
 from typing import Annotated, Optional
 
-import google.auth
 import inquirer
 import logfire
 import typer
@@ -14,7 +13,6 @@ from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnu
 from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
 from opsmith.repo_map import RepoMap
 from opsmith.scanner import RepoScanner
-from opsmith.settings import settings
 
 app = typer.Typer()
 
@@ -110,7 +108,7 @@ def main(
     AI Devops engineer in your terminal.
     """
     if logfire_token:
-        logfire.configure(token=logfire_token)
+        logfire.configure(token=logfire_token, scrubbing=False)
 
 
 @app.command()
@@ -187,16 +185,13 @@ def scan(ctx: typer.Context):
 @app.command()
 def deploy(ctx: typer.Context):
     """"""
-    print(google.auth.default())
-    questions = [
-        inquirer.List(
-            "size",
-            message="What size do you need?",
-            choices=["Jumbo", "Large", "Standard", "Medium", "Small", "Micro"],
-        ),
-    ]
-    inquirer.prompt(questions)
-    print(settings.deployments_dir)
+    deployer = Deployer(
+        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
+        model_config=ctx.parent.params["model"],
+        verbose=ctx.parent.params["verbose"],
+        instrument=bool(ctx.parent.params.get("logfire_token")),
+    )
+    deployer.generate_dockerfiles()
 
 
 @app.command()
