@@ -133,6 +133,7 @@ def setup(ctx: typer.Context):
     services = []
     services_updated = False
     is_update = bool(deployment_config)
+    app_name = None
 
     if is_update:
         print("\n[bold yellow]Existing deployment configuration found.[/bold yellow]")
@@ -151,11 +152,21 @@ def setup(ctx: typer.Context):
             return
 
         # Pre-fill with existing data
+        app_name = deployment_config.app_name
         cloud_details = deployment_config.cloud_provider
         current_provider_name = deployment_config.cloud_provider.name
         services = deployment_config.services
     else:
         print("No existing deployment configuration found. Starting analysis...")
+
+    app_name_questions = [
+        inquirer.Text("app_name", message="Enter the application name", default=app_name),
+    ]
+    app_name_answers = inquirer.prompt(app_name_questions)
+    if not app_name_answers or not app_name_answers.get("app_name"):
+        print("[bold red]Application name is required. Aborting.[/bold red]")
+        raise typer.Exit(code=1)
+    app_name = app_name_answers["app_name"]
 
     # Cloud Provider Selection
     provider_questions = [
@@ -211,6 +222,7 @@ def setup(ctx: typer.Context):
 
     # Create/Update and Save Configuration
     final_deployment_config = DeploymentConfig(
+        app_name=app_name,
         cloud_provider=cloud_details,
         services=services,
     )

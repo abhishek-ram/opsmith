@@ -88,6 +88,7 @@ class ServiceList(BaseModel):
 class DeploymentConfig(ServiceList):
     """Describes the deployment config for the repository, listing all services."""
 
+    app_name: str = Field(..., description="The name of the application.")
     cloud_provider: CloudProviderDetail = Field(..., discriminator="name")
 
 
