@@ -53,7 +53,7 @@ class GCPProvider(BaseCloudProvider):
                 raise ValueError("GCP project selection is required. Aborting.")
 
             selected_project_id = answers["project_id"]
-            return GCPCloudDetail(name=CloudProviderEnum.GCP, project_id=selected_project_id)
+            return GCPCloudDetail(name=CloudProviderEnum.GCP.name, project_id=selected_project_id)
 
         except DefaultCredentialsError as e:
             raise CloudCredentialsError(

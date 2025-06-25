@@ -116,80 +116,124 @@ def setup(ctx: typer.Context):
     Setup the deployment configuration for the repository.
     Identifies services, their languages, types, and frameworks.
     """
-    deployer = deployer = Deployer(
-        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
-        model_config=ctx.parent.params["model"],
-        verbose=ctx.parent.params["verbose"],
-        instrument=bool(ctx.parent.params.get("logfire_token")),
-    )
-    deployment_config = deployer.get_deployment_config()
-    if not deployment_config:
-        print("No existing deployment configuration found. Starting analysis...")
-
-        questions = [
-            inquirer.List(
-                "cloud_provider",
-                message="Select the cloud provider for deployment",
-                choices=[provider.value for provider in CloudProviderEnum],
-            ),
-        ]
-        answers = inquirer.prompt(questions)
-        if not answers:
-            print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
-            raise typer.Exit(code=1)
-
-        selected_provider_value = answers["cloud_provider"]
-        selected_provider_enum = CloudProviderEnum(selected_provider_value)
-
-        print(f"Initializing {selected_provider_enum.name} provider...")
-        provider_class = CLOUD_PROVIDER_REGISTRY[selected_provider_enum]
-
-        try:
-            # Instantiation might raise CloudCredentialsError (e.g. GCPProvider.__init__)
-            provider_instance = provider_class()
-            cloud_details = provider_instance.get_account_details()
-        except CloudCredentialsError as e:
-            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
-            raise typer.Exit(code=1)
-        except Exception as e:  # Catch other unexpected errors
-            print(
-                "[bold red]An unexpected error occurred while initializing cloud provider or"
-                f" fetching details: {e}. Aborting.[/bold red]"
-            )
-            raise typer.Exit(code=1)
-
-        print("Scanning your codebase now to detect services, frameworks, and languages...")
-        service_list_obj = deployer.detect_services()
-
-        new_deployment_config = DeploymentConfig(
-            cloud_provider=cloud_details,
-            services=service_list_obj.services,  # Access the list via .services
-        )
-
-        # Save the deployment configuration using the Deployer
-        deployer.save_deployment_config(new_deployment_config)
-
-        print("\n[bold green]Identified Deployment Configuration:[/bold green]")
-        print(yaml.dump(new_deployment_config.model_dump(mode="json")))
-    else:
-        print(
-            "\n[bold yellow]Existing deployment configuration found. To re-scan, delete the"
-            f" existing file at {deployer.config_file_path} and run scan again.[/bold yellow]"
-        )
-        print("\n[bold green]Current Deployment Configuration:[/bold green]")
-        print(yaml.dump(deployment_config.model_dump(mode="json")))
-
-
-@app.command()
-def deploy(ctx: typer.Context):
-    """"""
     deployer = Deployer(
         src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
         model_config=ctx.parent.params["model"],
         verbose=ctx.parent.params["verbose"],
         instrument=bool(ctx.parent.params.get("logfire_token")),
     )
-    deployer.generate_dockerfiles()
+    deployment_config = deployer.get_deployment_config()
+
+    cloud_details = None
+    current_provider_name = None
+    services = []
+    services_updated = False
+    is_update = bool(deployment_config)
+
+    if is_update:
+        print("\n[bold yellow]Existing deployment configuration found.[/bold yellow]")
+        print("\n[bold green]Current Deployment Configuration:[/bold green]")
+        print(yaml.dump(deployment_config.model_dump(mode="json")))
+
+        update_answers = inquirer.prompt(
+            [
+                inquirer.Confirm(
+                    "update", message="Do you want to update the configuration?", default=True
+                )
+            ]
+        )
+        if not update_answers or not update_answers.get("update"):
+            print("Skipping configuration update.")
+            return
+
+        # Pre-fill with existing data
+        cloud_details = deployment_config.cloud_provider
+        current_provider_name = deployment_config.cloud_provider.name
+        services = deployment_config.services
+    else:
+        print("No existing deployment configuration found. Starting analysis...")
+
+    # Cloud Provider Selection
+    provider_questions = [
+        inquirer.List(
+            "cloud_provider",
+            message="Select the cloud provider for deployment",
+            choices=[provider.value for provider in CloudProviderEnum],
+            default=current_provider_name,
+        ),
+    ]
+    provider_answers = inquirer.prompt(provider_questions)
+    if not provider_answers:
+        print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
+        raise typer.Exit(code=1)
+
+    selected_provider_value = provider_answers["cloud_provider"]
+    selected_provider_enum = CloudProviderEnum(selected_provider_value)
+
+    # Get cloud details if new or changed
+    if not is_update or selected_provider_enum.name != current_provider_name:
+        print(f"Initializing {selected_provider_enum.name} provider...")
+        provider_class = CLOUD_PROVIDER_REGISTRY[selected_provider_enum]
+        try:
+            provider_instance = provider_class()
+            cloud_details = provider_instance.get_account_details()
+        except CloudCredentialsError as e:
+            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
+            raise typer.Exit(code=1)
+        except Exception as e:
+            print(
+                "[bold red]An unexpected error occurred while initializing cloud provider or"
+                f" fetching details: {e}. Aborting.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+
+    # Service Detection
+    if is_update:
+        service_questions = [
+            inquirer.Confirm(
+                "update_services", message="Do you want to re-scan for services?", default=False
+            )
+        ]
+        service_answers = inquirer.prompt(service_questions)
+        if service_answers and service_answers.get("update_services"):
+            services_updated = True
+    else:  # New config, so we must scan
+        services_updated = True
+
+    if services_updated:
+        print("Scanning your codebase now to detect services, frameworks, and languages...")
+        service_list_obj = deployer.detect_services()
+        services = service_list_obj.services
+
+    # Create/Update and Save Configuration
+    final_deployment_config = DeploymentConfig(
+        cloud_provider=cloud_details,
+        services=services,
+    )
+    deployer.save_deployment_config(final_deployment_config)
+
+    if is_update:
+        print("\n[bold green]Deployment configuration updated:[/bold green]")
+    else:
+        print("\n[bold green]Created Deployment Configuration:[/bold green]")
+    print(yaml.dump(final_deployment_config.model_dump(mode="json")))
+
+    # Generate Dockerfiles if services were changed
+    if services_updated:
+        print("\n[bold blue]Services were updated. Generating Dockerfiles...[/bold blue]")
+        deployer.generate_dockerfiles()
+
+
+@app.command()
+def deploy(ctx: typer.Context):
+    """"""
+    Deployer(
+        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
+        model_config=ctx.parent.params["model"],
+        verbose=ctx.parent.params["verbose"],
+        instrument=bool(ctx.parent.params.get("logfire_token")),
+    )
+    pass
 
 
 @app.command()

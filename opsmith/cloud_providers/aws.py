@@ -28,7 +28,7 @@ class AWSProvider(BaseCloudProvider):
                     ),
                     help_url="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html",
                 )
-            return AWSCloudDetail(name=CloudProviderEnum.AWS, account_id=account_id)
+            return AWSCloudDetail(name=CloudProviderEnum.AWS.name, account_id=account_id)
         except (NoCredentialsError, ClientError) as e:
             raise CloudCredentialsError(
                 message=f"AWS credentials error: {e}",
