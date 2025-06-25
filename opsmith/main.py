@@ -71,6 +71,7 @@ def api_key_callback(ctx: typer.Context, value: str):
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     model: Annotated[
         ModelConfig,
         typer.Option(
@@ -108,6 +109,14 @@ def main(
     """
     if logfire_token:
         logfire.configure(token=logfire_token, scrubbing=False)
+    ctx.obj = {
+        "deployer": Deployer(
+            src_dir=src_dir or os.getcwd(),
+            model_config=model,
+            verbose=verbose,
+            instrument=bool(logfire_token),
+        )
+    }
 
 
 @app.command()
@@ -116,12 +125,7 @@ def setup(ctx: typer.Context):
     Setup the deployment configuration for the repository.
     Identifies services, their languages, types, and frameworks.
     """
-    deployer = Deployer(
-        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
-        model_config=ctx.parent.params["model"],
-        verbose=ctx.parent.params["verbose"],
-        instrument=bool(ctx.parent.params.get("logfire_token")),
-    )
+    deployer = ctx.obj["deployer"]
     deployment_config = deployer.get_deployment_config()
 
     cloud_details = None
@@ -227,12 +231,6 @@ def setup(ctx: typer.Context):
 @app.command()
 def deploy(ctx: typer.Context):
     """"""
-    Deployer(
-        src_dir=ctx.parent.params["src_dir"] or os.getcwd(),
-        model_config=ctx.parent.params["model"],
-        verbose=ctx.parent.params["verbose"],
-        instrument=bool(ctx.parent.params.get("logfire_token")),
-    )
     pass
 
 

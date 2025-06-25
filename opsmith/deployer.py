@@ -34,6 +34,19 @@ class InfrastructureDependency(BaseModel):
     )
 
 
+class EnvVarConfig(BaseModel):
+    """Describes an environment variable configuration for a service."""
+
+    key: str = Field(..., description="The name of the environment variable.")
+    is_secret: bool = Field(
+        ..., description="Whether the environment variable should be treated as a secret."
+    )
+    default_value: Optional[str] = Field(
+        None,
+        description="The default value of the environment variable, if present in the code.",
+    )
+
+
 class ServiceInfo(BaseModel):
     """Describes a single service to be deployed."""
 
@@ -57,6 +70,10 @@ class ServiceInfo(BaseModel):
     infra_deps: List[InfrastructureDependency] = Field(
         default_factory=list,
         description="A list of infrastructure dependencies required by the services.",
+    )
+    env_vars: List[EnvVarConfig] = Field(
+        default_factory=list,
+        description="A list of environment variable configurations required by the service.",
     )
 
 
@@ -181,7 +198,7 @@ class Deployer:
 
         prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(repo_map_str=repo_map_str)
 
-        print("Calling AI agent to analyse the repo and determine deployment strategy...")
+        print("Calling AI agent to analyse the repo and determine the services...")
         with WaitingSpinner(text="Waiting for the LLM", delay=0.1):
             run_result = self.agent.run_sync(prompt, output_type=ServiceList, deps=self.agent_deps)
 

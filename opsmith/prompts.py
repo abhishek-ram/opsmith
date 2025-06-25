@@ -18,11 +18,16 @@ Based on this map and the content of relevant files (which you can request using
     *   `dependency_type`: The type of the dependency. Must be one of: "database", "cache", "message_queue", "search_engine".
     *   `provider`: The specific provider of the dependency (e.g., "postgresql", "redis", "rabbitmq", "elasticsearch").
     *   `version`: The version of the dependency, if identifiable.
+7.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
+    *   `key`: The name of the environment variable.
+    *   `is_secret`: A boolean indicating if the variable should be treated as a secret (e.g., contains API keys, passwords, or other sensitive information).
+    *   `default_value`: The default value for the variable, if one is provided in the code.
 
 Return the information as a list of services.
 * Read the dependencies list from files like `requirements.txt`, `package.json`, `pom.xml`, `build.gradle`, etc., to get an idea of potential frameworks and infrastructure dependencies.
 * Do not rely on the repository map and dependency information alone; read relevant files such as entry points to figure out the services.
 * Look for configuration files or code that initializes connections to databases, caches, message queues, or search engines.
+* Scan the code for environment variable usage (e.g., `os.environ.get` in Python, `process.env` in Node.js or settings files) to identify required configurations. Keywords like 'SECRET', 'KEY', 'TOKEN', 'PASSWORD' in the variable name often indicate a secret.
 * Read as many files as needed until you are sure about the service and infrastructure dependency details.
 """
 
