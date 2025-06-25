@@ -1,5 +1,6 @@
+from enum import Enum
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -16,10 +17,28 @@ from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
 
 
+class ServiceTypeEnum(str, Enum):
+    """Enum for the different types of services that can be deployed."""
+
+    BACKEND_API = "BACKEND_API"
+    FRONTEND = "FRONTEND"
+    FULL_STACK = "FULL_STACK"
+    BACKEND_WORKER = "BACKEND_WORKER"
+
+
+class DependencyTypeEnum(str, Enum):
+    """Enum for the different types of infrastructure dependencies."""
+
+    DATABASE = "DATABASE"
+    CACHE = "CACHE"
+    MESSAGE_QUEUE = "MESSAGE_QUEUE"
+    SEARCH_ENGINE = "SEARCH_ENGINE"
+
+
 class InfrastructureDependency(BaseModel):
     """Describes an infrastructure dependency for a service."""
 
-    dependency_type: Literal["database", "cache", "message_queue", "search_engine"] = Field(
+    dependency_type: DependencyTypeEnum = Field(
         ..., description="The type of the infrastructure dependency."
     )
     provider: str = Field(
@@ -54,9 +73,7 @@ class ServiceInfo(BaseModel):
     language_version: Optional[str] = Field(
         None, description="The specific version of the language, if identifiable."
     )
-    service_type: Literal["backend_api", "frontend", "full_stack", "backend_worker"] = Field(
-        ..., description="The type of the service."
-    )
+    service_type: ServiceTypeEnum = Field(..., description="The type of the service.")
     framework: Optional[str] = Field(
         None, description="The primary framework or library used, if any."
     )
@@ -152,8 +169,21 @@ class Deployer:
         print("\n[bold blue]Starting Dockerfile generation...[/bold blue]")
         deployment_config = self.get_deployment_config()
 
+        buildable_service_types = [
+            ServiceTypeEnum.BACKEND_API,
+            ServiceTypeEnum.FULL_STACK,
+            ServiceTypeEnum.BACKEND_WORKER,
+        ]
+
         for idx, service in enumerate(deployment_config.services):
-            service_name_slug = f"{service.language}_{service.service_type}".replace(
+            if service.service_type not in buildable_service_types:
+                print(
+                    f"\n[bold yellow]Dockerfile not needed for service {service.service_type},"
+                    " skipping.[/bold yellow]"
+                )
+                continue
+
+            service_name_slug = f"{service.language}_{service.service_type.value}".replace(
                 " ", "_"
             ).lower()
             service_dir_name = "images"
