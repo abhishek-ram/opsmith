@@ -1,6 +1,6 @@
 [project]
 name = "opsmith-cli"
-version = "0.1.1"
+version = "0.1.2a"
 description = "Opsmith is an AI devops engineer in your terminal"
 classifiers = [
     "Development Status :: 4 - Beta",
