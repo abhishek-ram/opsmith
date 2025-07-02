@@ -168,25 +168,25 @@ def setup(ctx: typer.Context):
         raise typer.Exit(code=1)
     app_name = app_name_answers["app_name"]
 
-    # Cloud Provider Selection
-    provider_questions = [
-        inquirer.List(
-            "cloud_provider",
-            message="Select the cloud provider for deployment",
-            choices=[provider.value for provider in CloudProviderEnum],
-            default=current_provider_name,
-        ),
-    ]
-    provider_answers = inquirer.prompt(provider_questions)
-    if not provider_answers:
-        print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
-        raise typer.Exit(code=1)
+    # Cloud Provider Selection only allowed when setting up for the first time
+    if not is_update:
+        provider_questions = [
+            inquirer.List(
+                "cloud_provider",
+                message="Select the cloud provider for deployment",
+                choices=[provider.value for provider in CloudProviderEnum],
+                default=current_provider_name,
+            ),
+        ]
+        provider_answers = inquirer.prompt(provider_questions)
+        if not provider_answers:
+            print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
+            raise typer.Exit(code=1)
 
-    selected_provider_value = provider_answers["cloud_provider"]
-    selected_provider_enum = CloudProviderEnum(selected_provider_value)
+        selected_provider_value = provider_answers["cloud_provider"]
+        selected_provider_enum = CloudProviderEnum(selected_provider_value)
 
-    # Get cloud details if new or changed
-    if not is_update or selected_provider_enum.name != current_provider_name:
+        # Get cloud details if new or changed
         print(f"Initializing {selected_provider_enum.name} provider...")
         provider_class = CLOUD_PROVIDER_REGISTRY[selected_provider_enum]
         try:
