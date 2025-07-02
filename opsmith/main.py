@@ -12,6 +12,7 @@ from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnum
 from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
 from opsmith.repo_map import RepoMap
+from opsmith.spinner import WaitingSpinner
 from opsmith.types import DeploymentEnvironment
 
 app = typer.Typer()
@@ -279,18 +280,21 @@ def deploy(ctx: typer.Context):
         provider_name = deployment_config.cloud_provider.name
         provider_enum = CloudProviderEnum(provider_name)
         provider_class = CLOUD_PROVIDER_REGISTRY[provider_enum]
-        try:
-            provider_instance = provider_class()
-            regions = provider_instance.get_regions()
-        except CloudCredentialsError as e:
-            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
-            raise typer.Exit(code=1)
-        except Exception as e:
-            print(
-                "[bold red]An unexpected error occurred while initializing cloud provider or"
-                f" fetching details: {e}. Aborting.[/bold red]"
-            )
-            raise typer.Exit(code=1)
+        with WaitingSpinner(text="Fetching regions from your cloud provider", delay=0.1):
+            try:
+                provider_instance = provider_class()
+                regions = provider_instance.get_regions()
+            except CloudCredentialsError as e:
+                print(
+                    f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]"
+                )
+                raise typer.Exit(code=1)
+            except Exception as e:
+                print(
+                    "[bold red]An unexpected error occurred while initializing cloud provider or"
+                    f" fetching details: {e}. Aborting.[/bold red]"
+                )
+                raise typer.Exit(code=1)
 
         new_env_questions = [
             inquirer.Text(

@@ -107,16 +107,16 @@ class Deployer:
                 service_info_yaml=service_info_yaml,
                 repo_map_str=self.repo_map.get_repo_map(),
             )
+            with WaitingSpinner(text="Waiting for the LLM to generate the Dockerfile", delay=0.1):
+                response = self.agent.run_sync(
+                    prompt, deps=self.agent_deps, output_type=DockerfileContent
+                )
+                dockerfile_content = response.output
 
-            response = self.agent.run_sync(
-                prompt, deps=self.agent_deps, output_type=DockerfileContent
-            )
-            dockerfile_content = response.output
-
-            # Write ensures the dockerfile content received from the agent to the deployments_dir.
-            with open(dockerfile_path_abs, "w", encoding="utf-8") as f:
-                f.write(dockerfile_content.content)
-            print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
+                # Write ensures the dockerfile content received from the agent to the deployments_dir.
+                with open(dockerfile_path_abs, "w", encoding="utf-8") as f:
+                    f.write(dockerfile_content.content)
+                print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
 
         print("\n[bold blue]Dockerfile generation complete.[/bold blue]")
 
