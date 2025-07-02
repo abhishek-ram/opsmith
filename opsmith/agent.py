@@ -36,11 +36,9 @@ AVAILABLE_MODELS = [
     ),
     ModelConfig(provider="anthropic", model="claude-sonnet-4-20250514", api_key_prefix="ANTHROPIC"),
     ModelConfig(
-        provider="google-gla", model="gemini-2.5-pro-preview-05-06", api_key_prefix="GEMINI"
-    ),
-    ModelConfig(
         provider="google-gla", model="gemini-2.5-pro-preview-06-05", api_key_prefix="GEMINI"
     ),
+    ModelConfig(provider="google-gla", model="gemini-2.5-pro", api_key_prefix="GEMINI"),
 ]
 
 AVAILABLE_MODELS_XREF = {model.model_name_abs: model for model in AVAILABLE_MODELS}
