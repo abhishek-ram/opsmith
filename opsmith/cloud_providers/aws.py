@@ -1,4 +1,5 @@
 import boto3
+import botocore.session
 from botocore.exceptions import ClientError, NoCredentialsError
 
 from opsmith.cloud_providers.base import (
@@ -11,6 +12,28 @@ from opsmith.cloud_providers.base import (
 
 class AWSProvider(BaseCloudProvider):
     """AWS cloud provider implementation."""
+
+    def get_regions(self) -> list[tuple[str, str]]:
+        """
+        Retrieves a list of available AWS regions with their display names.
+        """
+        # Get available region codes from EC2
+        ec2_client = boto3.client("ec2", region_name="us-east-1")
+        response = ec2_client.describe_regions()
+        available_region_codes = {region["RegionName"] for region in response["Regions"]}
+
+        # Get region descriptions from botocore's packaged data
+        session = botocore.session.get_session()
+        # The first partition is 'aws' which contains all standard regions
+        region_data = session.get_data("endpoints")["partitions"][0]["regions"]
+
+        regions = []
+        for code in available_region_codes:
+            data = region_data[code]
+            description = data.get("description", code.replace("-", " ").title())
+            regions.append((f"{description} ({code})", code))
+
+        return sorted(regions)
 
     def get_account_details(self) -> AWSCloudDetail:
         """

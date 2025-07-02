@@ -1,6 +1,6 @@
 import abc
 import enum
-from typing import Literal, Union
+from typing import List, Literal, Tuple, Union
 
 from pydantic import BaseModel, Field
 
@@ -53,5 +53,13 @@ class BaseCloudProvider(abc.ABC):
     def get_account_details(self) -> CloudProviderDetail:
         """
         Retrieves structured account details for the cloud provider.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_regions(self) -> List[Tuple[str, str]]:
+        """
+        Retrieves a list of available regions for the cloud provider.
+        Returns a list of tuples, where each tuple contains the display name and the region code.
         """
         raise NotImplementedError

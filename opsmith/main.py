@@ -12,6 +12,7 @@ from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnum
 from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
 from opsmith.repo_map import RepoMap
+from opsmith.types import DeploymentEnvironment
 
 app = typer.Typer()
 
@@ -134,6 +135,7 @@ def setup(ctx: typer.Context):
     services_updated = False
     is_update = bool(deployment_config)
     app_name = None
+    environments = []
 
     if is_update:
         print("\n[bold yellow]Existing deployment configuration found.[/bold yellow]")
@@ -156,6 +158,7 @@ def setup(ctx: typer.Context):
         cloud_details = deployment_config.cloud_provider
         current_provider_name = deployment_config.cloud_provider.name
         services = deployment_config.services
+        environments = deployment_config.environments
     else:
         print("No existing deployment configuration found. Starting analysis...")
 
@@ -225,6 +228,7 @@ def setup(ctx: typer.Context):
         app_name=app_name,
         cloud_provider=cloud_details,
         services=services,
+        environments=environments,
     )
     deployer.save_deployment_config(final_deployment_config)
 
@@ -242,8 +246,88 @@ def setup(ctx: typer.Context):
 
 @app.command()
 def deploy(ctx: typer.Context):
-    """"""
-    pass
+    """Deploy the application to a specified environment."""
+    deployer = ctx.obj["deployer"]
+    deployment_config = deployer.get_deployment_config()
+    if not deployment_config:
+        print(
+            "[bold red]No deployment configuration found. Please run 'opsmith setup' first.[/bold"
+            " red]"
+        )
+        raise typer.Exit(code=1)
+
+    choices = deployment_config.environment_names + ["<Create a new environment>"]
+
+    questions = [
+        inquirer.List(
+            "environment",
+            message=(
+                "Select a deployment environment or create a new one (Ex: dev, stage, prod, ...)"
+            ),
+            choices=choices,
+        )
+    ]
+
+    answers = inquirer.prompt(questions)
+    if not answers:
+        raise typer.Exit()
+
+    selected_env_name = answers["environment"]
+
+    if selected_env_name == "<Create a new environment>":
+        # Get cloud provider to fetch regions
+        provider_name = deployment_config.cloud_provider.name
+        provider_enum = CloudProviderEnum(provider_name)
+        provider_class = CLOUD_PROVIDER_REGISTRY[provider_enum]
+        try:
+            provider_instance = provider_class()
+            regions = provider_instance.get_regions()
+        except CloudCredentialsError as e:
+            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
+            raise typer.Exit(code=1)
+        except Exception as e:
+            print(
+                "[bold red]An unexpected error occurred while initializing cloud provider or"
+                f" fetching details: {e}. Aborting.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+
+        new_env_questions = [
+            inquirer.Text(
+                "env_name",
+                message="Enter the new environment name",
+                validate=lambda _, x: x.strip() != ""
+                and x.strip() not in deployment_config.environment_names
+                and x.strip() != "<Create a new environment>",
+            ),
+            inquirer.List(
+                "region",
+                message="Select a region for the new environment",
+                choices=regions,
+            ),
+        ]
+        new_env_answers = inquirer.prompt(new_env_questions)
+        if (
+            not new_env_answers
+            or not new_env_answers.get("env_name")
+            or not new_env_answers.get("region")
+        ):
+            print("[bold red]Environment name and region are required. Aborting.[/bold red]")
+            raise typer.Exit()
+
+        selected_env_name = new_env_answers["env_name"].strip()
+        selected_region = new_env_answers["region"]
+
+        new_env = DeploymentEnvironment(name=selected_env_name, region=selected_region)
+        deployment_config.environments.append(new_env)
+        deployer.save_deployment_config(deployment_config)
+        print(
+            f"\n[bold green]New environment '{selected_env_name}' in region '{selected_region}'"
+            " created and saved.[/bold green]"
+        )
+
+    print(f"\nSelected environment: [bold cyan]{selected_env_name}[/bold cyan]")
+    # Future deployment logic will go here
 
 
 @app.command()

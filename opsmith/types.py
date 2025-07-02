@@ -91,8 +91,24 @@ class ServiceList(BaseModel):
     )
 
 
+class DeploymentEnvironment(BaseModel):
+    """Describes a deployment environment."""
+
+    name: str = Field(
+        ..., description="The name of the environment (e.g., 'staging', 'production')."
+    )
+    region: str = Field(..., description="The cloud provider region for this environment.")
+
+
 class DeploymentConfig(ServiceList):
     """Describes the deployment config for the repository, listing all services."""
 
     app_name: str = Field(..., description="The name of the application.")
     cloud_provider: CloudProviderDetail = Field(..., discriminator="name")
+    environments: List[DeploymentEnvironment] = Field(
+        default_factory=list, description="A list of deployment environments."
+    )
+
+    @property
+    def environment_names(self) -> List[str]:
+        return [env.name for env in self.environments]
