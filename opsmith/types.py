@@ -112,3 +112,10 @@ class DeploymentConfig(ServiceList):
     @property
     def environment_names(self) -> List[str]:
         return [env.name for env in self.environments]
+
+    def get_environment(self, name: str) -> DeploymentEnvironment:
+        """Retrieves an environment by name."""
+        for env in self.environments:
+            if env.name == name:
+                return env
+        raise ValueError(f"Environment '{name}' not found in the deployment configuration.")

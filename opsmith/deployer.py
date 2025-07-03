@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field
 from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
+from opsmith.cloud_providers import CloudProviderEnum
 from opsmith.prompts import (
     DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
     REPO_ANALYSIS_PROMPT_TEMPLATE,
@@ -13,7 +15,14 @@ from opsmith.prompts import (
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import DeploymentConfig, ServiceList, ServiceTypeEnum
+from opsmith.terraform import TerraformRunner
+from opsmith.types import (
+    DeploymentConfig,
+    DeploymentEnvironment,
+    ServiceList,
+    ServiceTypeEnum,
+)
+from opsmith.utils import slugify
 
 
 class DockerfileContent(BaseModel):
@@ -68,6 +77,60 @@ class Deployer:
             return DeploymentConfig(**config_data)
         else:
             return None
+
+    def setup_container_registry(
+        self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment
+    ) -> str:
+        """Sets up a container registry for the given region."""
+        print(
+            f"\n[bold blue]Setting up container registry for region '{environment.region}'...[/bold"
+            " blue]"
+        )
+
+        app_name = deployment_config.app_name
+        # Registry name should probably be unique per region for the app
+        registry_name = slugify(f"{app_name}-{environment.region}")
+        cloud_provider_details = deployment_config.cloud_provider
+        provider_name = cloud_provider_details.name.lower()
+
+        registry_infra_path = (
+            self.deployments_path
+            / "environments"
+            / "global"
+            / environment.region
+            / "container_registry"
+        )
+        tf = TerraformRunner(working_dir=registry_infra_path)
+
+        variables = {
+            "app_name": app_name,
+            "registry_name": registry_name,
+            "region": environment.region,
+        }
+        if cloud_provider_details.name == CloudProviderEnum.GCP.value:
+            variables["project_id"] = cloud_provider_details.project_id
+
+        try:
+            if not any(registry_infra_path.iterdir()):
+                tf.copy_template("container_registry", provider_name, variables)
+
+            tf.init_and_apply()
+
+            outputs = tf.get_output()
+            registry_url = outputs.get("registry_url")
+
+            if registry_url:
+                print(f"\n[bold green]Container registry created. URL: {registry_url}[/bold green]")
+                return registry_url
+            else:
+                print(
+                    "[bold red]Could not find 'registry_url' in TerraformRunner outputs.[/bold red]"
+                )
+                raise ValueError("Could not find 'registry_url' in TerraformRunner outputs.")
+
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            print(f"[bold red]Failed to set up container registry: {e}[/bold red]")
+            raise
 
     def generate_dockerfiles(
         self,
