@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+import typer
 import yaml
 from pydantic import BaseModel, Field
 from rich import print
@@ -32,6 +33,10 @@ class DockerfileContent(BaseModel):
     content: str = Field(
         ...,
         description="The final generated Dockerfile content.",
+    )
+    validation_output: str = Field(
+        ...,
+        description="The output from the final, successful call to the `build_dockerfile` tool.",
     )
     reason: Optional[str] = Field(
         None, description="The reasoning for the selection of the final Dockerfile content."
@@ -204,6 +209,14 @@ class Deployer:
     ):
         """Generates Dockerfiles for each service in the deployment configuration."""
         print("\n[bold blue]Starting Dockerfile generation...[/bold blue]")
+        try:
+            subprocess.run(["docker", "info"], check=True, capture_output=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print(
+                "[bold red]Docker daemon is not running. Please start Docker and try again.[/bold"
+                " red]"
+            )
+            raise typer.Exit(code=1)
         deployment_config = self.get_deployment_config()
 
         buildable_service_types = [

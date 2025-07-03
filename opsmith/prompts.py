@@ -71,6 +71,8 @@ Ensure the final Dockerfile:
 - Follows Docker best practices (e.g., multi-stage builds if beneficial, non-root user).
 
 Once the Dockerfile is successfully validated (built and, if run, passed the runtime checks for fixable errors)
-with the `build_dockerfile` tool, return only the final, validated Dockerfile content.
+with the `build_dockerfile` tool, return a `DockerfileContent` object. You MUST populate the
+`validation_output` field with the output from the final successful call to the `build_dockerfile`
+tool.
 If more information is required at any stage, use the `read_file_content` tool.
 """
