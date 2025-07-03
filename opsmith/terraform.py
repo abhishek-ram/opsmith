@@ -6,13 +6,16 @@ from typing import Any, Dict
 
 from rich import print
 
+from opsmith.command_runner import CommandRunner
 
-class TerraformRunner:
+
+class TerraformRunner(CommandRunner):
     """A wrapper for running TerraformRunner commands."""
 
     def __init__(self, working_dir: Path):
-        self.working_dir = working_dir
-        self.working_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__(
+            working_dir=working_dir, command_name="TerraformRunner", executable="terraform"
+        )
 
     def copy_template(self, template_name: str, provider: str, variables: Dict[str, str]):
         """
@@ -43,38 +46,6 @@ class TerraformRunner:
         """
         self._run_command(["terraform", "init", "-no-color"])
         self._run_command(["terraform", "apply", "-auto-approve", "-no-color"])
-
-    def _run_command(self, command: list[str]):
-        """Runs a TerraformRunner command and streams its output."""
-        print(
-            f"\n[bold]Running 'terraform {' '.join(command[1:])}' in {self.working_dir}...[/bold]"
-        )
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=self.working_dir,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-            )
-            for line in iter(process.stdout.readline, ""):
-                print(f"[grey50]{line.strip()}[/grey50]")
-            process.wait()
-            if process.returncode != 0:
-                raise subprocess.CalledProcessError(process.returncode, command)
-        except FileNotFoundError:
-            print(
-                "[bold red]Error: 'terraform' command not found. Please ensure TerraformRunner is"
-                " installed and in your PATH.[/bold red]"
-            )
-            raise
-        except subprocess.CalledProcessError as e:
-            print(
-                f"[bold red]TerraformRunner command failed with exit code {e.returncode}.[/bold"
-                " red]"
-            )
-            raise
 
     def get_output(self) -> Dict[str, Any]:
         """Retrieves TerraformRunner outputs from the working directory."""

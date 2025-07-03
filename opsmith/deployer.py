@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
+from opsmith.ansible import AnsibleRunner
 from opsmith.cloud_providers import CloudProviderEnum
 from opsmith.prompts import (
     DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
@@ -131,6 +132,72 @@ class Deployer:
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             print(f"[bold red]Failed to set up container registry: {e}[/bold red]")
             raise
+
+    def build_and_push_images(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        registry_url: str,
+    ):
+        """Builds and pushes Docker images for each service."""
+        print("\n[bold blue]Starting to build and push images...[/bold blue]")
+
+        buildable_service_types = [
+            ServiceTypeEnum.BACKEND_API,
+            ServiceTypeEnum.FULL_STACK,
+            ServiceTypeEnum.BACKEND_WORKER,
+        ]
+
+        for service in deployment_config.services:
+            if service.service_type not in buildable_service_types:
+                continue
+
+            # This logic is from generate_dockerfiles
+            service_dir_slug = f"{service.language}_{service.service_type.value}".replace(
+                " ", "_"
+            ).lower()
+            service_image_dir = "images"
+            dockerfile_path_abs = (
+                self.deployments_path / service_image_dir / service_dir_slug / "Dockerfile"
+            )
+
+            if not dockerfile_path_abs.exists():
+                print(
+                    f"[bold yellow]Dockerfile for {service_dir_slug} not found at"
+                    f" {dockerfile_path_abs}, skipping build.[/bold yellow]"
+                )
+                continue
+
+            image_name_slug = service_dir_slug
+
+            print(f"\n[bold]Building and pushing image for {image_name_slug}...[/bold]")
+
+            build_infra_path = (
+                self.deployments_path
+                / "environments"
+                / environment.name
+                / "build_images"
+                / image_name_slug
+            )
+
+            ansible_runner = AnsibleRunner(working_dir=build_infra_path)
+
+            cloud_provider_details = deployment_config.cloud_provider
+            provider_name = cloud_provider_details.name.lower()
+
+            extra_vars = {
+                "dockerfile_path": str(self.agent_deps.src_dir),
+                "dockerfile_name": str(dockerfile_path_abs),
+                "image_name_slug": image_name_slug,
+                "image_tag_name": "latest",
+                "region": environment.region,
+                "registry_url": registry_url,
+            }
+
+            ansible_runner.copy_template("docker_build_push", provider_name, {})
+            ansible_runner.run_playbook("main.yml", extra_vars)
+
+            print(f"[green]Successfully built and pushed image for {image_name_slug}[/green]")
 
     def generate_dockerfiles(
         self,

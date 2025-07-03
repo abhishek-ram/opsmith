@@ -1,0 +1,46 @@
+- name: Build and push Docker image to GCP Artifact Registry
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    # These variables are expected to be passed via --extra-vars
+    # dockerfile_path: "path/to/Dockerfile_directory"
+    # dockerfile_name: "Dockerfile"
+    # image_name_slug: "my-service"
+    # registry_url: "registry.com/my-repo"
+    # image_tag_name: "latest"
+    image_name: "{{ registry_url }}/{{ image_name_slug }}"
+    image_tag: "{{ image_tag_name }}"
+
+  tasks:
+    - name: "Login to GCP Artifact Registry"
+      block:
+        - name: Login to GCP Artifact Registry
+          command: "gcloud auth configure-docker {{ registry_url.split('/')[0] }} --quiet"
+
+      rescue:
+        - name: Handle login failure
+          fail:
+            msg: "Failed to login to GCP Artifact Registry. Please check your credentials."
+
+    - name: Build Docker image
+      community.docker.docker_image:
+        name: "{{ image_name }}:{{ image_tag }}"
+        build:
+          path: "{{ dockerfile_path }}"
+          dockerfile: "{{ dockerfile_name }}"
+        source: build
+        state: present
+      register: image_build_result
+
+    - name: Push Docker image
+      community.docker.docker_image:
+        name: "{{ image_name }}:{{ image_tag }}"
+        push: yes
+        source: local
+      when: image_build_result.changed
+
+    - name: Print image URL
+      debug:
+        msg: "Image pushed successfully to: {{ image_name }}:{{ image_tag }}"
