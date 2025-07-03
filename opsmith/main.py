@@ -14,6 +14,7 @@ from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deploy
 from opsmith.repo_map import RepoMap
 from opsmith.spinner import WaitingSpinner
 from opsmith.types import DeploymentEnvironment
+from opsmith.utils import build_logo
 
 app = typer.Typer()
 
@@ -109,6 +110,7 @@ def main(
     """
     AI Devops engineer in your terminal.
     """
+    print(build_logo())
     if logfire_token:
         logfire.configure(token=logfire_token, scrubbing=False)
     ctx.obj = {
