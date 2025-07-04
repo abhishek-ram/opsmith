@@ -14,9 +14,25 @@ from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deploy
 from opsmith.repo_map import RepoMap
 from opsmith.spinner import WaitingSpinner
 from opsmith.types import DeploymentEnvironment
-from opsmith.utils import build_logo
+from opsmith.utils import build_logo, get_missing_external_dependencies
 
 app = typer.Typer()
+
+
+def _check_external_dependencies():
+    """
+    Checks if a list of external command-line tools are installed and operational.
+    Exits the application if any dependency is not found or non-operational.
+
+    """
+    missing_deps = get_missing_external_dependencies(["docker", "terraform"])
+    if missing_deps:
+        print(
+            "[red]Required dependencies not found or not running:[/red] [bold"
+            f" red]{', '.join(missing_deps)}[/bold red]"
+        )
+        print("[red]Please install them and ensure they are in your system's PATH.[/red]")
+        raise typer.Exit(code=1)
 
 
 def parse_model_arg(model: str) -> ModelConfig:
@@ -111,8 +127,10 @@ def main(
     AI Devops engineer in your terminal.
     """
     print(build_logo())
+
     if logfire_token:
         logfire.configure(token=logfire_token, scrubbing=False)
+
     ctx.obj = {
         "deployer": Deployer(
             src_dir=src_dir or os.getcwd(),
@@ -121,6 +139,8 @@ def main(
             instrument=bool(logfire_token),
         )
     }
+
+    _check_external_dependencies()
 
 
 @app.command()

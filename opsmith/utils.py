@@ -1,6 +1,36 @@
 import re
+import shutil
+import subprocess
+from typing import List
 
 from rich.text import Text
+
+
+def get_missing_external_dependencies(dependencies: List[str]) -> List[str]:
+    """
+    Checks if a list of external command-line tools are installed and operational.
+    For Docker, it checks if the daemon is running. For Terraform, it checks if it's executable.
+
+    :param dependencies: A list of command names to check (e.g., ['docker', 'terraform']).
+    :return: A list of dependency names that were not found or are not operational.
+    """
+    missing_deps = []
+    for dep in dependencies:
+        command = None
+        if dep == "docker":
+            command = ["docker", "info"]
+        elif dep == "terraform":
+            command = ["terraform", "version"]
+
+        if command:
+            try:
+                subprocess.run(command, check=True, capture_output=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                missing_deps.append(dep)
+        else:
+            if not shutil.which(dep):
+                missing_deps.append(dep)
+    return missing_deps
 
 
 def slugify(value: str) -> str:
