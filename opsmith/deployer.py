@@ -7,8 +7,9 @@ from pydantic import BaseModel, Field
 from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
-from opsmith.ansible import AnsibleRunner
 from opsmith.cloud_providers import CloudProviderEnum
+from opsmith.command_runners.ansible import AnsibleRunner
+from opsmith.command_runners.terraform import TerraformRunner
 from opsmith.prompts import (
     DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
     REPO_ANALYSIS_PROMPT_TEMPLATE,
@@ -16,7 +17,6 @@ from opsmith.prompts import (
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
-from opsmith.terraform import TerraformRunner
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,

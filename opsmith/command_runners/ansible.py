@@ -5,7 +5,7 @@ from typing import Dict
 
 from rich import print
 
-from opsmith.command_runner import CommandRunner
+from opsmith.command_runners.base_runner import CommandRunner
 
 
 class AnsibleRunner(CommandRunner):
