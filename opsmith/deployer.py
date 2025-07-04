@@ -236,10 +236,16 @@ class Deployer:
                 f" {service.language} ({service.service_type})...[/bold]"
             )
 
+            existing_dockerfile_content = "N/A"
+            if dockerfile_path_abs.exists():
+                with open(dockerfile_path_abs, "r", encoding="utf-8") as f:
+                    existing_dockerfile_content = f.read()
+
             service_info_yaml = yaml.dump(service.model_dump(mode="json"), indent=2)
             prompt = DOCKERFILE_GENERATION_PROMPT_TEMPLATE.format(
                 service_info_yaml=service_info_yaml,
                 repo_map_str=self.repo_map.get_repo_map(),
+                existing_dockerfile_content=existing_dockerfile_content,
             )
             with WaitingSpinner(text="Waiting for the LLM to generate the Dockerfile", delay=0.1):
                 response = self.agent.run_sync(
@@ -254,7 +260,7 @@ class Deployer:
 
         print("\n[bold blue]Dockerfile generation complete.[/bold blue]")
 
-    def detect_services(self) -> ServiceList:
+    def detect_services(self, existing_config: Optional[ServiceList] = None) -> ServiceList:
         """
         Scans the repository to determine the services to be deployed, using the AI agent.
 
@@ -268,7 +274,14 @@ class Deployer:
         if self.verbose:
             print("Repo map generated:")
 
-        prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(repo_map_str=repo_map_str)
+        if existing_config:
+            existing_config_yaml = yaml.dump(existing_config.model_dump(mode="json"), indent=2)
+        else:
+            existing_config_yaml = "N/A"
+
+        prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(
+            repo_map_str=repo_map_str, existing_config_yaml=existing_config_yaml
+        )
 
         print("Calling AI agent to analyse the repo and determine the services...")
         with WaitingSpinner(text="Waiting for the LLM", delay=0.1):

@@ -24,21 +24,51 @@ class DependencyTypeEnum(str, Enum):
     SEARCH_ENGINE = "SEARCH_ENGINE"
 
 
+class InfrastructureProviderEnum(str, Enum):
+    """Enum for the different types of infrastructure providers."""
+
+    POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
+    MONGODB = "mongodb"
+    REDIS = "redis"
+    RABBITMQ = "rabbitmq"
+    KAFKA = "kafka"
+    ELASTICSEARCH = "elasticsearch"
+    WEAVIATE = "weaviate"
+    USER_CHOICE = "user_choice"
+
+
+COMPATIBLE_PROVIDERS = {
+    DependencyTypeEnum.DATABASE: [
+        InfrastructureProviderEnum.POSTGRESQL,
+        InfrastructureProviderEnum.MYSQL,
+        InfrastructureProviderEnum.MONGODB,
+    ],
+    DependencyTypeEnum.CACHE: [InfrastructureProviderEnum.REDIS],
+    DependencyTypeEnum.MESSAGE_QUEUE: [
+        InfrastructureProviderEnum.RABBITMQ,
+        InfrastructureProviderEnum.KAFKA,
+        InfrastructureProviderEnum.REDIS,
+    ],
+    DependencyTypeEnum.SEARCH_ENGINE: [
+        InfrastructureProviderEnum.ELASTICSEARCH,
+        InfrastructureProviderEnum.WEAVIATE,
+    ],
+}
+
+
 class InfrastructureDependency(BaseModel):
     """Describes an infrastructure dependency for a service."""
 
     dependency_type: DependencyTypeEnum = Field(
         ..., description="The type of the infrastructure dependency."
     )
-    provider: str = Field(
+    provider: InfrastructureProviderEnum = Field(
         ...,
-        description=(
-            "The specific provider of the dependency (e.g., 'postgresql', 'redis', 'rabbitmq',"
-            " 'elasticsearch')."
-        ),
+        description="The specific provider of the dependency.",
     )
-    version: Optional[str] = Field(
-        None, description="The version of the infrastructure dependency, if identifiable."
+    version: str = Field(
+        "latest", description="The version of the infrastructure dependency, if identifiable."
     )
 
 
@@ -73,10 +103,6 @@ class ServiceInfo(BaseModel):
             " 'webpack')."
         ),
     )
-    infra_deps: List[InfrastructureDependency] = Field(
-        default_factory=list,
-        description="A list of infrastructure dependencies required by the services.",
-    )
     env_vars: List[EnvVarConfig] = Field(
         default_factory=list,
         description="A list of environment variable configurations required by the service.",
@@ -88,6 +114,10 @@ class ServiceList(BaseModel):
 
     services: List[ServiceInfo] = Field(
         ..., description="A list of services identified in the repository."
+    )
+    infra_deps: List[InfrastructureDependency] = Field(
+        default_factory=list,
+        description="A list of consolidated infrastructure dependencies required by all services.",
     )
 
 

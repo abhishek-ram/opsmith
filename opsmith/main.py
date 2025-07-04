@@ -5,6 +5,8 @@ import inquirer
 import logfire
 import typer
 import yaml
+from inquirer.errors import ValidationError as InquirerValidationError
+from pydantic import ValidationError
 from rich import print
 
 from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig
@@ -13,7 +15,7 @@ from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnu
 from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
 from opsmith.repo_map import RepoMap
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import DeploymentEnvironment
+from opsmith.types import DeploymentEnvironment, InfrastructureDependency, ServiceInfo
 from opsmith.utils import build_logo, get_missing_external_dependencies
 
 app = typer.Typer()
@@ -143,6 +145,33 @@ def main(
     _check_external_dependencies()
 
 
+def _validate_service_config(_, config_yaml):
+    try:
+        data = yaml.safe_load(config_yaml)
+        ServiceInfo(**data)
+        return True
+    except (yaml.YAMLError, ValidationError) as e:
+        error_str = str(e).replace("{", "{{").replace("}", "}}")
+        raise InquirerValidationError("", reason=f"Invalid service configuration: {error_str}")
+
+
+def _validate_dependency_config(_, config_yaml):
+    if "user_choice" in config_yaml:
+        raise InquirerValidationError(
+            "",
+            reason="Provider is 'user_choice'. Please replace it with a valid provider.",
+        )
+    try:
+        data = yaml.safe_load(config_yaml)
+        InfrastructureDependency(**data)
+        return True
+    except (yaml.YAMLError, ValidationError) as e:
+        error_str = str(e).replace("{", "{{").replace("}", "}}")
+        raise inquirer.errors.ValidationError(
+            "", reason=f"Invalid dependency configuration: {error_str}"
+        )
+
+
 @app.command()
 def setup(ctx: typer.Context):
     """
@@ -152,10 +181,10 @@ def setup(ctx: typer.Context):
     deployer = ctx.obj["deployer"]
     deployment_config = deployer.get_deployment_config()
 
-    cloud_details = None
     current_provider_name = None
     services = []
-    services_updated = False
+    infra_deps = []
+    scan_services = False
     is_update = bool(deployment_config)
     app_name = None
     environments = []
@@ -165,37 +194,40 @@ def setup(ctx: typer.Context):
         print("\n[bold green]Current Deployment Configuration:[/bold green]")
         print(yaml.dump(deployment_config.model_dump(mode="json")))
 
-        update_answers = inquirer.prompt(
-            [
-                inquirer.Confirm(
-                    "update", message="Do you want to update the configuration?", default=True
-                )
-            ]
-        )
-        if not update_answers or not update_answers.get("update"):
-            print("Skipping configuration update.")
+        update_actions = ["Re-scan services", "Exit"]
+        questions = [
+            inquirer.List(
+                "action",
+                message="What would you like to do?",
+                choices=update_actions,
+                default="Exit",
+            )
+        ]
+        answers = inquirer.prompt(questions)
+        if not answers or answers.get("action") == "Exit":
+            print("Exiting setup.")
             return
+
+        if answers.get("action") == "Re-scan services":
+            scan_services = True
 
         # Pre-fill with existing data
         app_name = deployment_config.app_name
         cloud_details = deployment_config.cloud_provider
-        current_provider_name = deployment_config.cloud_provider.name
         services = deployment_config.services
         environments = deployment_config.environments
+        infra_deps = deployment_config.infra_deps
     else:
         print("No existing deployment configuration found. Starting analysis...")
+        app_name_questions = [
+            inquirer.Text("app_name", message="Enter the application name", default=app_name),
+        ]
+        app_name_answers = inquirer.prompt(app_name_questions)
+        if not app_name_answers or not app_name_answers.get("app_name"):
+            print("[bold red]Application name is required. Aborting.[/bold red]")
+            raise typer.Exit(code=1)
+        app_name = app_name_answers["app_name"]
 
-    app_name_questions = [
-        inquirer.Text("app_name", message="Enter the application name", default=app_name),
-    ]
-    app_name_answers = inquirer.prompt(app_name_questions)
-    if not app_name_answers or not app_name_answers.get("app_name"):
-        print("[bold red]Application name is required. Aborting.[/bold red]")
-        raise typer.Exit(code=1)
-    app_name = app_name_answers["app_name"]
-
-    # Cloud Provider Selection only allowed when setting up for the first time
-    if not is_update:
         provider_questions = [
             inquirer.List(
                 "cloud_provider",
@@ -227,24 +259,66 @@ def setup(ctx: typer.Context):
                 f" fetching details: {e}. Aborting.[/bold red]"
             )
             raise typer.Exit(code=1)
+        scan_services = True
 
-    # Service Detection
-    if is_update:
-        service_questions = [
-            inquirer.Confirm(
-                "update_services", message="Do you want to re-scan for services?", default=False
-            )
-        ]
-        service_answers = inquirer.prompt(service_questions)
-        if service_answers and service_answers.get("update_services"):
-            services_updated = True
-    else:  # New config, so we must scan
-        services_updated = True
-
-    if services_updated:
+    if scan_services:
         print("Scanning your codebase now to detect services, frameworks, and languages...")
-        service_list_obj = deployer.detect_services()
-        services = service_list_obj.services
+        service_list_obj = deployer.detect_services(
+            existing_config=deployment_config if is_update else None
+        )
+
+        confirmed_services = []
+        if service_list_obj.services:
+            print("\n[bold]Please review and confirm each detected service:[/bold]")
+        for i, service in enumerate(service_list_obj.services):
+            service_yaml = yaml.dump(service.model_dump(mode="json"), indent=2)
+
+            editor_prompt_message = (
+                f"Review and confirm Service {i + 1}/{len(service_list_obj.services)}"
+            )
+            questions = [
+                inquirer.Editor(
+                    "config",
+                    message=editor_prompt_message,
+                    default=service_yaml,
+                    validate=_validate_service_config,
+                )
+            ]
+            answers = inquirer.prompt(questions)
+            confirmed_service_data = yaml.safe_load(answers["config"])
+            confirmed_service = ServiceInfo(**confirmed_service_data)
+            confirmed_services.append(confirmed_service)
+
+        services = confirmed_services
+
+        confirmed_infra_deps = []
+        if service_list_obj.infra_deps:
+            print(
+                "\n[bold]Please review and confirm each detected infrastructure dependency.  If"
+                " 'provider' is set to 'user_choice', please replace it with a valid"
+                " provider.[/bold]\n\n"
+            )
+
+        for i, dep in enumerate(service_list_obj.infra_deps):
+            dep_yaml = yaml.dump(dep.model_dump(mode="json"), indent=2)
+            editor_prompt_message = (
+                f"Review and confirm Dependency {i + 1}/{len(service_list_obj.infra_deps)}.\n"
+            )
+
+            questions = [
+                inquirer.Editor(
+                    "config",
+                    message=editor_prompt_message,
+                    default=dep_yaml,
+                    validate=_validate_dependency_config,
+                )
+            ]
+            answers = inquirer.prompt(questions)
+            confirmed_dep_data = yaml.safe_load(answers["config"])
+            confirmed_dep = InfrastructureDependency(**confirmed_dep_data)
+            confirmed_infra_deps.append(confirmed_dep)
+
+        infra_deps = confirmed_infra_deps
 
     # Create/Update and Save Configuration
     final_deployment_config = DeploymentConfig(
@@ -252,6 +326,7 @@ def setup(ctx: typer.Context):
         cloud_provider=cloud_details,
         services=services,
         environments=environments,
+        infra_deps=infra_deps,
     )
     deployer.save_deployment_config(final_deployment_config)
 
@@ -262,7 +337,7 @@ def setup(ctx: typer.Context):
     print(yaml.dump(final_deployment_config.model_dump(mode="json")))
 
     # Generate Dockerfiles if services were changed
-    if services_updated:
+    if scan_services and services != deployment_config.services:
         print("\n[bold blue]Services were updated. Generating Dockerfiles...[/bold blue]")
         deployer.generate_dockerfiles()
 
