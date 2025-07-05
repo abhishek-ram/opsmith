@@ -69,11 +69,15 @@ Your goal is to return a complete, updated Dockerfile that reflects the current 
 - The final output should be the complete Dockerfile content, not just the changes.
 
 Existing Dockerfile Content:
+```
 {existing_dockerfile_content}
+```
 
 If `validation_feedback` is provided below, it means the previous attempt to validate the Dockerfile failed.
 Use the feedback to correct the Dockerfile.
+```
 {validation_feedback}
+```
 
 Your task is to generate an optimized and production-ready Dockerfile for this service.
 
