@@ -5,7 +5,6 @@ import inquirer
 import logfire
 import typer
 import yaml
-from inquirer.errors import ValidationError as InquirerValidationError
 from pydantic import ValidationError
 from rich import print
 
@@ -145,31 +144,42 @@ def main(
     _check_external_dependencies()
 
 
-def _validate_service_config(_, config_yaml):
+def _validate_service_config(_, config_yaml: str) -> bool:
     try:
         data = yaml.safe_load(config_yaml)
         ServiceInfo(**data)
         return True
     except (yaml.YAMLError, ValidationError) as e:
-        error_str = str(e).replace("{", "{{").replace("}", "}}")
-        raise InquirerValidationError("", reason=f"Invalid service configuration: {error_str}")
+        print(f"\n[red]>>[/red] Invalid service configuration: {e}\n")
+        return False
 
 
-def _validate_dependency_config(_, config_yaml):
-    if "user_choice" in config_yaml:
-        raise InquirerValidationError(
-            "",
-            reason="Provider is 'user_choice'. Please replace it with a valid provider.",
-        )
+def _validate_infra_deps_config(_, config_yaml: str) -> bool:
     try:
+        if "user_choice" in config_yaml:
+            raise ValueError(
+                "Provider is 'user_choice'. Please replace it with a valid provider.",
+            )
+
         data = yaml.safe_load(config_yaml)
-        InfrastructureDependency(**data)
+        if not isinstance(data, list):
+            raise ValueError("Configuration must be a YAML list of dependencies.")
+
+        deps = [InfrastructureDependency(**item) for item in data]
+
+        seen_providers = set()
+        for dep in deps:
+            if dep.provider in seen_providers:
+                print("Duplicate provider")
+                raise ValueError(
+                    f"Duplicate provider found: {dep.provider}. Each provider can only be"
+                    " listed once."
+                )
+            seen_providers.add(dep.provider)
         return True
-    except (yaml.YAMLError, ValidationError) as e:
-        error_str = str(e).replace("{", "{{").replace("}", "}}")
-        raise inquirer.errors.ValidationError(
-            "", reason=f"Invalid dependency configuration: {error_str}"
-        )
+    except (yaml.YAMLError, ValidationError, ValueError) as e:
+        print(f"\n[red]>>[/red] Invalid dependency configuration: {e}\n")
+        return False
 
 
 @app.command()
@@ -291,34 +301,25 @@ def setup(ctx: typer.Context):
 
         services = confirmed_services
 
-        confirmed_infra_deps = []
-        if service_list_obj.infra_deps:
-            print(
-                "\n[bold]Please review and confirm each detected infrastructure dependency.  If"
-                " 'provider' is set to 'user_choice', please replace it with a valid"
-                " provider.[/bold]\n\n"
-            )
-
-        for i, dep in enumerate(service_list_obj.infra_deps):
-            dep_yaml = yaml.dump(dep.model_dump(mode="json"), indent=2)
+        infra_deps = service_list_obj.infra_deps
+        if infra_deps:
+            print("\n[bold]Please review and confirm detected infrastructure dependencies.[/bold]")
+            deps_yaml = yaml.dump([dep.model_dump(mode="json") for dep in infra_deps], indent=2)
             editor_prompt_message = (
-                f"Review and confirm Dependency {i + 1}/{len(service_list_obj.infra_deps)}.\n"
+                "Review and confirm dependencies.\nIf 'provider' is 'user_choice', please replace"
+                " it with a valid provider.\nEach provider can only be listed once."
             )
-
             questions = [
                 inquirer.Editor(
                     "config",
                     message=editor_prompt_message,
-                    default=dep_yaml,
-                    validate=_validate_dependency_config,
+                    default=deps_yaml,
+                    validate=_validate_infra_deps_config,
                 )
             ]
             answers = inquirer.prompt(questions)
-            confirmed_dep_data = yaml.safe_load(answers["config"])
-            confirmed_dep = InfrastructureDependency(**confirmed_dep_data)
-            confirmed_infra_deps.append(confirmed_dep)
-
-        infra_deps = confirmed_infra_deps
+            confirmed_deps_data = yaml.safe_load(answers["config"])
+            infra_deps = [InfrastructureDependency(**data) for data in confirmed_deps_data]
 
     # Create/Update and Save Configuration
     final_deployment_config = DeploymentConfig(
