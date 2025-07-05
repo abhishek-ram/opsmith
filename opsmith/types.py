@@ -121,6 +121,26 @@ class ServiceList(BaseModel):
     )
 
 
+class DockerfileContent(BaseModel):
+    """Describes the dockerfile response from the agent, including the generated Dockerfile content and reasoning for the selection."""
+
+    content: str = Field(
+        ...,
+        description="The final generated Dockerfile content.",
+    )
+    reason: Optional[str] = Field(
+        None, description="The reasoning for the selection of the final Dockerfile content."
+    )
+    is_final: bool = Field(
+        False,
+        description=(
+            "Set this to true if you believe the Dockerfile is correct and complete, and any"
+            " further validation errors are due to runtime configuration (like missing env vars)"
+            " that cannot be fixed in the Dockerfile."
+        ),
+    )
+
+
 class DeploymentEnvironment(BaseModel):
     """Describes a deployment environment."""
 

@@ -278,8 +278,10 @@ def setup(ctx: typer.Context):
         )
 
         confirmed_services = []
+
         if service_list_obj.services:
             print("\n[bold]Please review and confirm each detected service:[/bold]")
+
         for i, service in enumerate(service_list_obj.services):
             service_yaml = yaml.dump(service.model_dump(mode="json"), indent=2)
 
@@ -298,6 +300,9 @@ def setup(ctx: typer.Context):
             confirmed_service_data = yaml.safe_load(answers["config"])
             confirmed_service = ServiceInfo(**confirmed_service_data)
             confirmed_services.append(confirmed_service)
+
+            print("\n[bold blue]Generating Dockerfile for the updated service...[/bold blue]")
+            deployer.generate_dockerfile(service=confirmed_service)
 
         services = confirmed_services
 
@@ -336,11 +341,6 @@ def setup(ctx: typer.Context):
     else:
         print("\n[bold green]Created Deployment Configuration:[/bold green]")
     print(yaml.dump(final_deployment_config.model_dump(mode="json")))
-
-    # Generate Dockerfiles if services were changed
-    if scan_services and services != deployment_config.services:
-        print("\n[bold blue]Services were updated. Generating Dockerfiles...[/bold blue]")
-        deployer.generate_dockerfiles()
 
 
 @app.command()
