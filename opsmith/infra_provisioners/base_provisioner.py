@@ -5,8 +5,20 @@ from typing import List
 from rich import print
 
 
-class CommandRunner:
-    """A base class for running external commands."""
+class BaseInfrastructureProvisioner:
+    """
+    Base class for provisioning infrastructure using specific commands or executables.
+
+    Provides functionalities to handle command execution in a specified working directory.
+    Ensures necessary directory setup and robust command execution with output streaming.
+
+    :ivar working_dir: Directory where the commands will be executed.
+    :type working_dir: Path
+    :ivar command_name: Name of the command/tool being executed (for user feedback).
+    :type command_name: str
+    :ivar executable: Name or path of the executable/tool to be used for command execution.
+    :type executable: str
+    """
 
     def __init__(self, working_dir: Path, command_name: str, executable: str):
         self.working_dir = working_dir

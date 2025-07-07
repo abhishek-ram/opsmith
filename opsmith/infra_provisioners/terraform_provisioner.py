@@ -6,25 +6,25 @@ from typing import Any, Dict
 
 from rich import print
 
-from opsmith.command_runners.base_runner import CommandRunner
+from opsmith.infra_provisioners.base_provisioner import BaseInfrastructureProvisioner
 
 
-class TerraformRunner(CommandRunner):
-    """A wrapper for running TerraformRunner commands."""
+class TerraformProvisioner(BaseInfrastructureProvisioner):
+    """A wrapper for running TerraformProvisioner commands."""
 
     def __init__(self, working_dir: Path):
         super().__init__(
-            working_dir=working_dir, command_name="TerraformRunner", executable="terraform"
+            working_dir=working_dir, command_name="TerraformProvisioner", executable="terraform"
         )
 
     def copy_template(self, template_name: str, provider: str, variables: Dict[str, str]):
         """
-        Copies TerraformRunner templates to the working directory and creates a .tfvars file.
+        Copies TerraformProvisioner templates to the working directory and creates a .tfvars file.
         """
         template_dir = Path(__file__).parent.parent / "templates" / template_name / provider
         if not template_dir.exists() or not template_dir.is_dir():
             print(
-                f"[bold red]TerraformRunner templates for {provider.upper()} not found at"
+                f"[bold red]TerraformProvisioner templates for {provider.upper()} not found at"
                 f" {template_dir}.[/bold red]"
             )
             raise FileNotFoundError(f"Template directory not found: {template_dir}")
@@ -38,7 +38,9 @@ class TerraformRunner(CommandRunner):
         with open(tfvars_path, "w", encoding="utf-8") as f:
             f.write("\n".join(tfvars_content) + "\n")
 
-        print(f"[green]TerraformRunner files and variables copied to: {self.working_dir}[/green]")
+        print(
+            f"[green]TerraformProvisioner files and variables copied to: {self.working_dir}[/green]"
+        )
 
     def init_and_apply(self):
         """
@@ -48,7 +50,7 @@ class TerraformRunner(CommandRunner):
         self._run_command(["terraform", "apply", "-auto-approve", "-no-color"])
 
     def get_output(self) -> Dict[str, Any]:
-        """Retrieves TerraformRunner outputs from the working directory."""
+        """Retrieves TerraformProvisioner outputs from the working directory."""
         try:
             result = subprocess.run(
                 ["terraform", "output", "-json"],
@@ -62,16 +64,16 @@ class TerraformRunner(CommandRunner):
             return {key: value["value"] for key, value in outputs.items()}
         except FileNotFoundError:
             print(
-                "[bold red]Error: 'terraform' command not found. Please ensure TerraformRunner is"
-                " installed and in your PATH.[/bold red]"
+                "[bold red]Error: 'terraform' command not found. Please ensure TerraformProvisioner"
+                " is installed and in your PATH.[/bold red]"
             )
             raise
         except subprocess.CalledProcessError as e:
             print(
-                "[bold red]Failed to get TerraformRunner outputs. Exit code:"
+                "[bold red]Failed to get TerraformProvisioner outputs. Exit code:"
                 f" {e.returncode}[/bold red]\n{e.stderr}"
             )
             raise
         except json.JSONDecodeError:
-            print("[bold red]Failed to parse TerraformRunner output as JSON.[/bold red]")
+            print("[bold red]Failed to parse TerraformProvisioner output as JSON.[/bold red]")
             raise

@@ -5,10 +5,10 @@ from typing import Dict
 
 from rich import print
 
-from opsmith.command_runners.base_runner import CommandRunner
+from opsmith.infra_provisioners.base_provisioner import BaseInfrastructureProvisioner
 
 
-class AnsibleRunner(CommandRunner):
+class AnsibleProvisioner(BaseInfrastructureProvisioner):
     """A wrapper for running ansible-playbook commands."""
 
     def __init__(self, working_dir: Path):

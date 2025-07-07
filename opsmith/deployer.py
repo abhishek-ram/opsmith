@@ -8,8 +8,8 @@ import yaml
 from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
-from opsmith.command_runners.ansible import AnsibleRunner
-from opsmith.command_runners.terraform import TerraformRunner
+from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
+from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import (
     DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
     REPO_ANALYSIS_PROMPT_TEMPLATE,
@@ -94,7 +94,7 @@ class Deployer:
             / environment.region
             / "container_registry"
         )
-        tf = TerraformRunner(working_dir=registry_infra_path)
+        tf = TerraformProvisioner(working_dir=registry_infra_path)
 
         variables = {
             "app_name": app_name,
@@ -117,9 +117,10 @@ class Deployer:
                 return registry_url
             else:
                 print(
-                    "[bold red]Could not find 'registry_url' in TerraformRunner outputs.[/bold red]"
+                    "[bold red]Could not find 'registry_url' in TerraformProvisioner outputs.[/bold"
+                    " red]"
                 )
-                raise ValueError("Could not find 'registry_url' in TerraformRunner outputs.")
+                raise ValueError("Could not find 'registry_url' in TerraformProvisioner outputs.")
 
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             print(f"[bold red]Failed to set up container registry: {e}[/bold red]")
@@ -172,7 +173,7 @@ class Deployer:
                 / image_name_slug
             )
 
-            ansible_runner = AnsibleRunner(working_dir=build_infra_path)
+            ansible_runner = AnsibleProvisioner(working_dir=build_infra_path)
 
             provider_name = deployment_config.cloud_provider["name"].lower()
 
