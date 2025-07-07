@@ -1,6 +1,6 @@
 import abc
 from importlib.metadata import entry_points
-from typing import Any, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Dict, List, Literal, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field, TypeAdapter
 from rich import print
@@ -15,20 +15,19 @@ class CloudProviderRegistry:
 
     _instance: Optional["CloudProviderRegistry"] = None
     _providers: Dict[str, Type["BaseCloudProvider"]]
-    _detail_models: List[Type["BaseCloudProviderDetail"]]
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._providers = {}
-            cls._instance._detail_models = []
+            cls._instance._load_builtin_providers()
+            cls._instance._load_plugin_providers()
         return cls._instance
 
     def register(self, provider_class: Type["BaseCloudProvider"]):
         """Registers a cloud provider."""
         # Not raising error on overwrite allows for easy extension/replacement
         self._providers[provider_class.name()] = provider_class
-        self._detail_models.append(provider_class.get_detail_model())
 
     def get_provider_class(self, provider_name: str) -> Type["BaseCloudProvider"]:
         """Retrieves a provider class from the registry."""
@@ -45,16 +44,16 @@ class CloudProviderRegistry:
             choices_list.append((display_text, name))
         return choices_list
 
-    @property
-    def detail_models_union(self) -> Any:
-        """Returns a Union of all registered cloud provider detail models."""
-        if not self._detail_models:
-            # This case should ideally not happen in normal operation
-            # as built-in providers are registered.
-            return type(None)
-        return Union[tuple(self._detail_models)]
+    def _load_builtin_providers(self):
+        """Load built-in strategies"""
 
-    def load_providers_from_entry_points(self):
+        from opsmith.cloud_providers.aws import AWSProvider
+        from opsmith.cloud_providers.gcp import GCPProvider
+
+        for provider_cls in [AWSProvider, GCPProvider]:
+            self.register(provider_cls)
+
+    def _load_plugin_providers(self):
         """Loads providers from 'opsmith.cloud_providers' entry points."""
         discovered_entry_points = entry_points(group="opsmith.cloud_providers")
 
