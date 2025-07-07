@@ -3,7 +3,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from opsmith.cloud_providers.base import CloudProviderDetail
+from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
+from opsmith.cloud_providers.base import BaseCloudProvider
 
 
 class ServiceTypeEnum(str, Enum):
@@ -148,13 +149,14 @@ class DeploymentEnvironment(BaseModel):
         ..., description="The name of the environment (e.g., 'staging', 'production')."
     )
     region: str = Field(..., description="The cloud provider region for this environment.")
+    strategy: str = Field(..., description="The deployment strategy for this environment.")
 
 
 class DeploymentConfig(ServiceList):
     """Describes the deployment config for the repository, listing all services."""
 
     app_name: str = Field(..., description="The name of the application.")
-    cloud_provider: CloudProviderDetail = Field(..., discriminator="name")
+    cloud_provider: dict = Field(..., description="Cloud provider specific details.")
     environments: List[DeploymentEnvironment] = Field(
         default_factory=list, description="A list of deployment environments."
     )
@@ -169,3 +171,9 @@ class DeploymentConfig(ServiceList):
             if env.name == name:
                 return env
         raise ValueError(f"Environment '{name}' not found in the deployment configuration.")
+
+    @property
+    def cloud_provider_instance(self) -> BaseCloudProvider:
+        """Retrieves a cloud provider instance by name."""
+        provider_cls = CLOUD_PROVIDER_REGISTRY.get_provider_class(self.cloud_provider.get("name"))
+        return provider_cls(self.cloud_provider)

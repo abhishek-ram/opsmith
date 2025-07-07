@@ -21,7 +21,7 @@ class TerraformRunner(CommandRunner):
         """
         Copies TerraformRunner templates to the working directory and creates a .tfvars file.
         """
-        template_dir = Path(__file__).parent / "templates" / template_name / provider
+        template_dir = Path(__file__).parent.parent / "templates" / template_name / provider
         if not template_dir.exists() or not template_dir.is_dir():
             print(
                 f"[bold red]TerraformRunner templates for {provider.upper()} not found at"

@@ -8,7 +8,6 @@ import yaml
 from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
-from opsmith.cloud_providers import CloudProviderEnum
 from opsmith.command_runners.ansible import AnsibleRunner
 from opsmith.command_runners.terraform import TerraformRunner
 from opsmith.prompts import (
@@ -84,8 +83,9 @@ class Deployer:
         app_name = deployment_config.app_name
         # Registry name should probably be unique per region for the app
         registry_name = slugify(f"{app_name}-{environment.region}")
-        cloud_provider_details = deployment_config.cloud_provider
-        provider_name = cloud_provider_details.name.lower()
+
+        cloud_provider_instance = deployment_config.cloud_provider_instance
+        provider_name = cloud_provider_instance.name()
 
         registry_infra_path = (
             self.deployments_path
@@ -101,8 +101,7 @@ class Deployer:
             "registry_name": registry_name,
             "region": environment.region,
         }
-        if cloud_provider_details.name == CloudProviderEnum.GCP.value:
-            variables["project_id"] = cloud_provider_details.project_id
+        variables.update(cloud_provider_instance.provider_detail.model_dump(mode="json"))
 
         try:
             if not any(registry_infra_path.iterdir()):
@@ -175,8 +174,7 @@ class Deployer:
 
             ansible_runner = AnsibleRunner(working_dir=build_infra_path)
 
-            cloud_provider_details = deployment_config.cloud_provider
-            provider_name = cloud_provider_details.name.lower()
+            provider_name = deployment_config.cloud_provider["name"].lower()
 
             extra_vars = {
                 "dockerfile_path": str(self.agent_deps.src_dir),

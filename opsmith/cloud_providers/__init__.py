@@ -1,10 +1,11 @@
-from typing import Dict, Type
+from opsmith.cloud_providers.aws import AWSProvider
+from opsmith.cloud_providers.base import CloudProviderRegistry
+from opsmith.cloud_providers.gcp import GCPProvider
 
-from .aws import AWSProvider
-from .base import BaseCloudProvider, CloudProviderEnum
-from .gcp import GCPProvider
+CLOUD_PROVIDER_REGISTRY = CloudProviderRegistry()
 
-CLOUD_PROVIDER_REGISTRY: Dict[CloudProviderEnum, Type[BaseCloudProvider]] = {
-    CloudProviderEnum.AWS: AWSProvider,
-    CloudProviderEnum.GCP: GCPProvider,
-}
+CLOUD_PROVIDER_REGISTRY.register(AWSProvider)
+CLOUD_PROVIDER_REGISTRY.register(GCPProvider)
+
+# Load any providers from installed packages
+CLOUD_PROVIDER_REGISTRY.load_providers_from_entry_points()

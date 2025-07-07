@@ -10,8 +10,9 @@ from rich import print
 
 from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
-from opsmith.cloud_providers.base import CloudCredentialsError, CloudProviderEnum
+from opsmith.cloud_providers.base import CloudCredentialsError
 from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
+from opsmith.deployment_strategies import DEPLOYMENT_STRATEGY_REGISTRY
 from opsmith.repo_map import RepoMap
 from opsmith.spinner import WaitingSpinner
 from opsmith.types import DeploymentEnvironment, InfrastructureDependency, ServiceInfo
@@ -242,7 +243,7 @@ def setup(ctx: typer.Context):
             inquirer.List(
                 "cloud_provider",
                 message="Select the cloud provider for deployment",
-                choices=[provider.value for provider in CloudProviderEnum],
+                choices=CLOUD_PROVIDER_REGISTRY.choices,
                 default=current_provider_name,
             ),
         ]
@@ -252,14 +253,12 @@ def setup(ctx: typer.Context):
             raise typer.Exit(code=1)
 
         selected_provider_value = provider_answers["cloud_provider"]
-        selected_provider_enum = CloudProviderEnum(selected_provider_value)
 
         # Get cloud details if new or changed
-        print(f"Initializing {selected_provider_enum.name} provider...")
-        provider_class = CLOUD_PROVIDER_REGISTRY[selected_provider_enum]
+        print(f"Initializing {selected_provider_value} provider...")
+        provider_class = CLOUD_PROVIDER_REGISTRY.get_provider_class(selected_provider_value)
         try:
-            provider_instance = provider_class()
-            cloud_details = provider_instance.get_account_details()
+            cloud_details = provider_class.get_account_details()
         except CloudCredentialsError as e:
             print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
             raise typer.Exit(code=1)
@@ -375,12 +374,9 @@ def deploy(ctx: typer.Context):
 
     if selected_env_name == "<Create a new environment>":
         # Get cloud provider to fetch regions
-        provider_name = deployment_config.cloud_provider.name
-        provider_enum = CloudProviderEnum(provider_name)
-        provider_class = CLOUD_PROVIDER_REGISTRY[provider_enum]
         with WaitingSpinner(text="Fetching regions from your cloud provider", delay=0.1):
             try:
-                provider_instance = provider_class()
+                provider_instance = deployment_config.cloud_provider_instance
                 regions = provider_instance.get_regions()
             except CloudCredentialsError as e:
                 print(
@@ -407,25 +403,37 @@ def deploy(ctx: typer.Context):
                 message="Select a region for the new environment",
                 choices=regions,
             ),
+            inquirer.List(
+                "strategy",
+                message="Select a deployment strategy for the new environment",
+                choices=DEPLOYMENT_STRATEGY_REGISTRY.choices,
+            ),
         ]
         new_env_answers = inquirer.prompt(new_env_questions)
         if (
             not new_env_answers
             or not new_env_answers.get("env_name")
             or not new_env_answers.get("region")
+            or not new_env_answers.get("strategy")
         ):
-            print("[bold red]Environment name and region are required. Aborting.[/bold red]")
+            print(
+                "[bold red]Environment name, region, and strategy are required. Aborting.[/bold"
+                " red]"
+            )
             raise typer.Exit()
 
         selected_env_name = new_env_answers["env_name"].strip()
         selected_region = new_env_answers["region"]
+        selected_strategy = new_env_answers["strategy"]
 
-        new_env = DeploymentEnvironment(name=selected_env_name, region=selected_region)
+        new_env = DeploymentEnvironment(
+            name=selected_env_name, region=selected_region, strategy=selected_strategy
+        )
         deployment_config.environments.append(new_env)
         deployer.save_deployment_config(deployment_config)
         print(
             f"\n[bold green]New environment '{selected_env_name}' in region '{selected_region}'"
-            " created and saved.[/bold green]"
+            f" with strategy '{selected_strategy}' created and saved.[/bold green]"
         )
 
     selected_env = deployment_config.get_environment(selected_env_name)

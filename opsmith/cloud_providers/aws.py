@@ -1,3 +1,5 @@
+from typing import Type
+
 import boto3
 import botocore.session
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -5,13 +7,28 @@ from botocore.exceptions import ClientError, NoCredentialsError
 from opsmith.cloud_providers.base import (
     AWSCloudDetail,
     BaseCloudProvider,
+    BaseCloudProviderDetail,
     CloudCredentialsError,
-    CloudProviderEnum,
 )
 
 
 class AWSProvider(BaseCloudProvider):
     """AWS cloud provider implementation."""
+
+    @classmethod
+    def name(cls) -> str:
+        """The name of the cloud provider."""
+        return "AWS"
+
+    @classmethod
+    def description(cls) -> str:
+        """A brief description of the cloud provider."""
+        return "Amazon Web Services, a comprehensive and broadly adopted cloud platform."
+
+    @classmethod
+    def get_detail_model(cls) -> Type[AWSCloudDetail]:
+        """The cloud provider detail model."""
+        return AWSCloudDetail
 
     def get_regions(self) -> list[tuple[str, str]]:
         """
@@ -35,7 +52,8 @@ class AWSProvider(BaseCloudProvider):
 
         return sorted(regions)
 
-    def get_account_details(self) -> AWSCloudDetail:
+    @classmethod
+    def get_account_details(cls) -> BaseCloudProviderDetail:
         """
         Retrieves structured AWS account details.
         """
@@ -51,7 +69,7 @@ class AWSProvider(BaseCloudProvider):
                     ),
                     help_url="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html",
                 )
-            return AWSCloudDetail(name=CloudProviderEnum.AWS.name, account_id=account_id)
+            return AWSCloudDetail(account_id=account_id)
         except (NoCredentialsError, ClientError) as e:
             raise CloudCredentialsError(
                 message=f"AWS credentials error: {e}",

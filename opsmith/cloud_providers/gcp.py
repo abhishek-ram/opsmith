@@ -1,11 +1,13 @@
+from typing import Type
+
 import google.auth
 import inquirer
 from google.auth.credentials import Credentials
 from google.auth.exceptions import DefaultCredentialsError
 
-from opsmith.cloud_providers import CloudProviderEnum
 from opsmith.cloud_providers.base import (
     BaseCloudProvider,
+    BaseCloudProviderDetail,
     CloudCredentialsError,
     GCPCloudDetail,
 )
@@ -58,6 +60,21 @@ GCP_REGION_NAMES = {
 
 class GCPProvider(BaseCloudProvider):
     """GCP cloud provider implementation."""
+
+    @classmethod
+    def name(cls) -> str:
+        """The name of the cloud provider."""
+        return "GCP"
+
+    @classmethod
+    def description(cls) -> str:
+        """A brief description of the cloud provider."""
+        return "Google Cloud Platform, a suite of cloud computing services from Google."
+
+    @classmethod
+    def get_detail_model(cls) -> Type[GCPCloudDetail]:
+        """The cloud provider detail model."""
+        return GCPCloudDetail
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -138,13 +155,14 @@ class GCPProvider(BaseCloudProvider):
             regions.append((f"{name} ({code})", code))
         return sorted(regions)
 
-    def get_account_details(self) -> GCPCloudDetail:
+    @classmethod
+    def get_account_details(cls) -> BaseCloudProviderDetail:
         """
         Retrieves structured GCP account details by listing available projects
         and prompting the user for selection.
         """
         try:
-            self.get_credentials()
+            credentials, _ = google.auth.default()
 
             questions = [
                 inquirer.Text(
@@ -158,7 +176,7 @@ class GCPProvider(BaseCloudProvider):
                 raise ValueError("GCP project selection is required. Aborting.")
 
             selected_project_id = answers["project_id"]
-            return GCPCloudDetail(name=CloudProviderEnum.GCP.name, project_id=selected_project_id)
+            return GCPCloudDetail(project_id=selected_project_id)
 
         except DefaultCredentialsError as e:
             raise CloudCredentialsError(

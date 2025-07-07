@@ -1,0 +1,3 @@
+from opsmith.deployment_strategies.base import DeploymentStrategyRegistry
+
+DEPLOYMENT_STRATEGY_REGISTRY = DeploymentStrategyRegistry()
