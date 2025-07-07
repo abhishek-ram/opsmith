@@ -27,7 +27,7 @@ from opsmith.types import (
 )
 from opsmith.utils import slugify
 
-MAX_DOCKERFILE_GENERATE_ATTEMPTS = 3
+MAX_DOCKERFILE_GENERATE_ATTEMPTS = 5
 
 
 class Deployer:

@@ -96,3 +96,20 @@ If you determine that the Dockerfile is correct and any runtime validation error
 not fixable within the Dockerfile itself (e.g., due to missing environment variables),
 set `is_final` to `True` in your response.
 """
+
+MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE = """
+You are an expert DevOps engineer. Your task is to estimate the resource requirements
+for deploying a monolithic application for hobby/experimental purposes.
+
+The application consists of the following services:
+{services_yaml}
+
+And has the following infrastructure dependencies:
+{infra_deps_yaml}
+
+Based on this information, estimate the smallest possible resources required to run all services
+and infrastructure dependencies together on a single machine, prioritizing low cost over performance.
+Provide the estimated number of virtual CPU cores and the amount of RAM in gigabytes.
+
+Return the information as a `MachineRequirements` JSON object.
+"""

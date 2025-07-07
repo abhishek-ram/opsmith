@@ -4,6 +4,7 @@ import google.auth
 import inquirer
 from google.auth.credentials import Credentials
 from google.auth.exceptions import DefaultCredentialsError
+from google.cloud import compute_v1
 
 from opsmith.cloud_providers.base import (
     BaseCloudProvider,
@@ -11,51 +12,6 @@ from opsmith.cloud_providers.base import (
     CloudCredentialsError,
     GCPCloudDetail,
 )
-
-GCP_REGION_NAMES = {
-    "africa-south1": "Johannesburg",
-    "asia-east1": "Taiwan",
-    "asia-east2": "Hong Kong",
-    "asia-northeast1": "Tokyo",
-    "asia-northeast2": "Osaka",
-    "asia-northeast3": "Seoul",
-    "asia-south1": "Mumbai",
-    "asia-south2": "Delhi",
-    "asia-southeast1": "Singapore",
-    "asia-southeast2": "Jakarta",
-    "australia-southeast1": "Sydney",
-    "australia-southeast2": "Melbourne",
-    "europe-central2": "Warsaw",
-    "europe-north1": "Finland",
-    "europe-north2": "Kouvola",
-    "europe-southwest1": "Madrid",
-    "europe-west1": "Belgium",
-    "europe-west10": "Berlin",
-    "europe-west12": "Turin",
-    "europe-west2": "London",
-    "europe-west3": "Frankfurt",
-    "europe-west4": "Netherlands",
-    "europe-west6": "Zurich",
-    "europe-west8": "Milan",
-    "europe-west9": "Paris",
-    "me-central1": "Doha",
-    "me-central2": "Dammam",
-    "me-west1": "Tel Aviv",
-    "northamerica-northeast1": "Montreal",
-    "northamerica-northeast2": "Toronto",
-    "northamerica-south1": "Queretaro",
-    "southamerica-east1": "Sao Paulo",
-    "southamerica-west1": "Santiago",
-    "us-central1": "Iowa",
-    "us-east1": "South Carolina",
-    "us-east4": "Northern Virginia",
-    "us-east5": "Columbus",
-    "us-south1": "Dallas",
-    "us-west1": "Oregon",
-    "us-west2": "Los Angeles",
-    "us-west3": "Salt Lake City",
-    "us-west4": "Las Vegas",
-}
 
 
 class GCPProvider(BaseCloudProvider):
@@ -97,63 +53,63 @@ class GCPProvider(BaseCloudProvider):
 
     def get_regions(self) -> list[tuple[str, str]]:
         """
-        Retrieves a list of available GCP regions.
-        This is a hardcoded list of common regions.
+        Retrieves a list of available GCP regions using the GCP API.
         """
-        # GCP doesn't have a simple, unauthenticated API to list all regions.
-        # This list includes most of the generally available regions.
-        # For an up-to-date list, one could use `gcloud compute regions list`
-        # or a more complex API call.
-        region_codes = [
-            "africa-south1",
-            "asia-east1",
-            "asia-east2",
-            "asia-northeast1",
-            "asia-northeast2",
-            "asia-northeast3",
-            "asia-south1",
-            "asia-south2",
-            "asia-southeast1",
-            "asia-southeast2",
-            "australia-southeast1",
-            "australia-southeast2",
-            "europe-central2",
-            "europe-north1",
-            "europe-north2",
-            "europe-southwest1",
-            "europe-west1",
-            "europe-west10",
-            "europe-west12",
-            "europe-west2",
-            "europe-west3",
-            "europe-west4",
-            "europe-west6",
-            "europe-west8",
-            "europe-west9",
-            "me-west1",
-            "me-central1",
-            "me-central2",
-            "northamerica-northeast1",
-            "northamerica-northeast2",
-            "northamerica-south1",
-            "southamerica-east1",
-            "southamerica-west1",
-            "us-central1",
-            "us-east1",
-            "us-east4",
-            "us-east5",
-            "us-south1",
-            "us-west1",
-            "us-west2",
-            "us-west3",
-            "us-west4",
-        ]
+        client = compute_v1.RegionsClient(credentials=self.get_credentials())
+        project_id = self.provider_detail.project_id
+
+        request = compute_v1.ListRegionsRequest(project=project_id)
+        pager = client.list(request=request)
 
         regions = []
-        for code in region_codes:
-            name = GCP_REGION_NAMES.get(code, code.replace("-", " ").title())
+        for region in pager:
+            # The description is often more user-friendly than the name
+            name = region.description or region.name.replace("-", " ").title()
+            code = region.name
             regions.append((f"{name} ({code})", code))
+
         return sorted(regions)
+
+    def get_instance_type(self, cpu: int, ram_gb: int, region: str) -> str:
+        """
+        Retrieves an appropriate instance type for the given resource requirements using the GCP API.
+        """
+        client = compute_v1.MachineTypesClient(credentials=self.get_credentials())
+        project_id = self.provider_detail.project_id
+        ram_mb = ram_gb * 1024
+
+        # We need a zone to list machine types. We'll pick a zone in the region, assuming standard naming.
+        zone = f"{region}-a"
+
+        request = compute_v1.ListMachineTypesRequest(project=project_id, zone=zone)
+        pager = client.list(request=request)
+
+        eligible_machines = []
+        for mtype in pager:
+            if mtype.deprecated:
+                continue
+
+            # Filter for general-purpose, newer generation instance families
+            if mtype.name.startswith(("e2-", "n2-", "n2d-", "t2d-")):
+                if mtype.guest_cpus >= cpu and mtype.memory_mb >= ram_mb:
+                    eligible_machines.append(
+                        {
+                            "name": mtype.name,
+                            "cpu": mtype.guest_cpus,
+                            "ram_mb": mtype.memory_mb,
+                        }
+                    )
+
+        if not eligible_machines:
+            raise ValueError(
+                "Could not find any suitable instance type for the given requirements in zone"
+                f" {zone}."
+            )
+
+        # Sort by vCPU, then RAM to find the smallest/cheapest instance
+        eligible_machines.sort(key=lambda x: (x["cpu"], x["ram_mb"]))
+
+        return eligible_machines[0]["name"]
 
     @classmethod
     def get_account_details(cls) -> BaseCloudProviderDetail:

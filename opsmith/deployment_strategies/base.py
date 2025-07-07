@@ -1,9 +1,12 @@
 import abc
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type
 
+from pydantic_ai import Agent
 from rich import print
 
+from opsmith.agent import AgentDeps
 from opsmith.types import DeploymentConfig, DeploymentEnvironment
 
 
@@ -80,8 +83,9 @@ class BaseDeploymentStrategy(abc.ABC):
         """A brief description of the deployment strategy."""
         raise NotImplementedError
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self, agent: Agent, src_dir: Path):
+        self.agent = agent
+        self.agent_deps = AgentDeps(src_dir=Path(src_dir))
 
     @abc.abstractmethod
     def setup_infra(self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment):

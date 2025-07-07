@@ -142,6 +142,13 @@ class DockerfileContent(BaseModel):
     )
 
 
+class MachineRequirements(BaseModel):
+    """Describes the machine requirements for a monolithic deployment."""
+
+    cpu: int = Field(..., description="The number of virtual CPU cores required.")
+    ram_gb: int = Field(..., description="The amount of RAM in gigabytes required.")
+
+
 class DeploymentEnvironment(BaseModel):
     """Describes a deployment environment."""
 

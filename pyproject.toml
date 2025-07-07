@@ -21,6 +21,8 @@ dependencies = [
     "black>=25.1.0",
     "boto3-stubs==1.38.36",
     "gitpython>=3.1.44",
+    "google-api-python-client>=2.175.0",
+    "google-cloud-compute>=1.31.0",
     "google-cloud-resource-manager>=1.14.2",
     "grep-ast>=0.9.0",
     "inquirer>=3.4.0",

@@ -134,12 +134,13 @@ def main(
         logfire.configure(token=logfire_token, scrubbing=False)
 
     ctx.obj = {
+        "src_dir": src_dir or os.getcwd(),
         "deployer": Deployer(
             src_dir=src_dir or os.getcwd(),
             model_config=model,
             verbose=verbose,
             instrument=bool(logfire_token),
-        )
+        ),
     }
 
     _check_external_dependencies()
@@ -258,7 +259,7 @@ def setup(ctx: typer.Context):
         print(f"Initializing {selected_provider_value} provider...")
         provider_class = CLOUD_PROVIDER_REGISTRY.get_provider_class(selected_provider_value)
         try:
-            cloud_details = provider_class.get_account_details()
+            cloud_details = provider_class.get_account_details().model_dump(mode="json")
         except CloudCredentialsError as e:
             print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
             raise typer.Exit(code=1)
@@ -430,11 +431,19 @@ def deploy(ctx: typer.Context):
             name=selected_env_name, region=selected_region, strategy=selected_strategy
         )
         deployment_config.environments.append(new_env)
+
+        deployment_strategy = DEPLOYMENT_STRATEGY_REGISTRY.get_strategy_class(selected_strategy)(
+            deployer.agent,
+            ctx.parent.params["src_dir"],
+        )
+        deployment_strategy.setup_infra(deployment_config, new_env)
+
         deployer.save_deployment_config(deployment_config)
         print(
             f"\n[bold green]New environment '{selected_env_name}' in region '{selected_region}'"
             f" with strategy '{selected_strategy}' created and saved.[/bold green]"
         )
+        return
 
     selected_env = deployment_config.get_environment(selected_env_name)
     registry_url = deployer.setup_container_registry(deployment_config, selected_env)

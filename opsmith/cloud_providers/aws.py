@@ -52,6 +52,61 @@ class AWSProvider(BaseCloudProvider):
 
         return sorted(regions)
 
+    def get_instance_type(self, cpu: int, ram_gb: int, region: str) -> str:
+        """
+        Retrieves an appropriate instance type for the given resource requirements using heuristics.
+        """
+        ec2_client = boto3.client("ec2", region_name=region)
+        ram_mb = ram_gb * 1024
+
+        # Prioritize newer generation, general-purpose instance families
+        instance_families = ["t4g", "t3", "m7g", "m7i", "m6g", "m6i", "m5"]
+        instance_type_patterns = [f"{family}.*" for family in instance_families]
+
+        paginator = ec2_client.get_paginator("describe_instance_types")
+        pages = paginator.paginate(
+            Filters=[
+                {"Name": "instance-type", "Values": instance_type_patterns},
+                {"Name": "current-generation", "Values": ["true"]},
+            ]
+        )
+
+        eligible_instances = []
+        for page in pages:
+            for itype in page["InstanceTypes"]:
+                if (
+                    "VCpuInfo" in itype
+                    and "DefaultVCpus" in itype["VCpuInfo"]
+                    and "MemoryInfo" in itype
+                    and "SizeInMiB" in itype["MemoryInfo"]
+                ):
+                    instance_vcpu = itype["VCpuInfo"]["DefaultVCpus"]
+                    instance_mem_mb = itype["MemoryInfo"]["SizeInMiB"]
+
+                    if instance_vcpu >= cpu and instance_mem_mb >= ram_mb:
+                        eligible_instances.append(
+                            {
+                                "name": itype["InstanceType"],
+                                "cpu": instance_vcpu,
+                                "ram_mb": instance_mem_mb,
+                            }
+                        )
+
+        if not eligible_instances:
+            raise ValueError(
+                "Could not find any suitable instance type for the given requirements."
+            )
+
+        # Sort by vCPU and then RAM to find the smallest/cheapest instance
+        eligible_instances.sort(
+            key=lambda x: (
+                x["cpu"],
+                x["ram_mb"],
+            )
+        )
+
+        return eligible_instances[0]["name"]
+
     @classmethod
     def get_account_details(cls) -> BaseCloudProviderDetail:
         """

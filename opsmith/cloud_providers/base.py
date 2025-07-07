@@ -120,6 +120,13 @@ class BaseCloudProvider(abc.ABC):
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def get_instance_type(self, cpu: int, ram_gb: int, region: str) -> str:
+        """
+        Retrieves an appropriate instance type for the given resource requirements.
+        """
+        raise NotImplementedError
+
     def __init__(self, provider_detail: dict, *args, **kwargs):
         """
         Initializes the cloud provider.
