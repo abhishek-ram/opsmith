@@ -1,6 +1,8 @@
+import os
+import shutil
 import subprocess
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 from rich import print
 
@@ -26,10 +28,29 @@ class BaseInfrastructureProvisioner:
         self.executable = executable
         self.working_dir.mkdir(parents=True, exist_ok=True)
 
-    def _run_command(self, command: List[str]):
+    def copy_template(self, template_name: str, provider: str):
+        """
+        Copies templates to the working directory.
+        """
+        template_dir = Path(__file__).parent.parent / "templates" / template_name / provider
+        if not template_dir.exists() or not template_dir.is_dir():
+            print(
+                f"[bold red]{self.command_name} templates for {provider.upper()} not found at"
+                f" {template_dir}.[/bold red]"
+            )
+            raise FileNotFoundError(f"Template directory not found: {template_dir}")
+
+        # Use shutil.copytree to copy the contents of the template directory
+        shutil.copytree(template_dir, self.working_dir, dirs_exist_ok=True)
+
+        print(f"[green]{self.command_name} files copied to: {self.working_dir}[/green]")
+
+    def _run_command(self, command: List[str], env: Optional[Dict[str, str]] = None):
         """Runs a command and streams its output."""
-        display_cmd = " ".join(map(str, command))
-        print(f"\n[bold]Running `{display_cmd}` in {self.working_dir}...[/bold]")
+        print(f"\n[bold]Running `{self.command_name}` in {self.working_dir}...[/bold]")
+
+        process_env = os.environ.copy()
+        process_env.update(env or {})
 
         try:
             process = subprocess.Popen(
@@ -39,6 +60,7 @@ class BaseInfrastructureProvisioner:
                 stderr=subprocess.STDOUT,
                 text=True,
                 encoding="utf-8",
+                env=process_env,
             )
             for line in iter(process.stdout.readline, ""):
                 print(f"[grey50]{line.strip()}[/grey50]")

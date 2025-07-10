@@ -1,8 +1,7 @@
 import json
-import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from rich import print
 
@@ -17,37 +16,20 @@ class TerraformProvisioner(BaseInfrastructureProvisioner):
             working_dir=working_dir, command_name="TerraformProvisioner", executable="terraform"
         )
 
-    def copy_template(self, template_name: str, provider: str, variables: Dict[str, str]):
-        """
-        Copies TerraformProvisioner templates to the working directory and creates a .tfvars file.
-        """
-        template_dir = Path(__file__).parent.parent / "templates" / template_name / provider
-        if not template_dir.exists() or not template_dir.is_dir():
-            print(
-                f"[bold red]TerraformProvisioner templates for {provider.upper()} not found at"
-                f" {template_dir}.[/bold red]"
-            )
-            raise FileNotFoundError(f"Template directory not found: {template_dir}")
-
-        # Use shutil.copytree to copy the contents of the template directory
-        shutil.copytree(template_dir, self.working_dir, dirs_exist_ok=True)
-
-        # Create terraform.tfvars file with dynamic values
-        tfvars_content = [f'{key} = "{value}"' for key, value in variables.items()]
-        tfvars_path = self.working_dir / "terraform.tfvars"
-        with open(tfvars_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(tfvars_content) + "\n")
-
-        print(
-            f"[green]TerraformProvisioner files and variables copied to: {self.working_dir}[/green]"
-        )
-
-    def init_and_apply(self):
+    def init_and_apply(self, variables: Dict[str, str], env_vars: Optional[Dict[str, str]] = None):
         """
         Initializes and applies the terraform configuration.
         """
         self._run_command(["terraform", "init", "-no-color"])
-        self._run_command(["terraform", "apply", "-auto-approve", "-no-color"])
+        command = ["terraform", "apply", "-auto-approve", "-no-color"]
+        for key, value in variables.items():
+            command.extend(["-var", f"{key}={value}"])
+
+        tf_env_vars = {}
+        for key, value in env_vars.items() or {}:
+            tf_env_vars[f"TF_VAR_{key}"] = str(value)
+
+        self._run_command(command, env=tf_env_vars)
 
     def get_output(self) -> Dict[str, Any]:
         """Retrieves TerraformProvisioner outputs from the working directory."""

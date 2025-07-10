@@ -101,13 +101,13 @@ class Deployer:
             "registry_name": registry_name,
             "region": environment.region,
         }
-        variables.update(cloud_provider_instance.provider_detail.model_dump(mode="json"))
+        env_vars = cloud_provider_instance.provider_detail.model_dump(mode="json")
 
         try:
             if not any(registry_infra_path.iterdir()):
-                tf.copy_template("container_registry", provider_name, variables)
+                tf.copy_template("container_registry", provider_name)
 
-            tf.init_and_apply()
+            tf.init_and_apply(variables, env_vars=env_vars)
 
             outputs = tf.get_output()
             registry_url = outputs.get("registry_url")
@@ -186,7 +186,7 @@ class Deployer:
                 "registry_url": registry_url,
             }
 
-            ansible_runner.copy_template("docker_build_push", provider_name, {})
+            ansible_runner.copy_template("docker_build_push", provider_name)
             ansible_runner.run_playbook("main.yml", extra_vars)
 
             print(f"[green]Successfully built and pushed image for {image_name_slug}[/green]")

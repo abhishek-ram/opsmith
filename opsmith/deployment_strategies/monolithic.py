@@ -1,10 +1,15 @@
+import subprocess
+
 import yaml
 from rich import print
 
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
+from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE
+from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
 from opsmith.types import DeploymentConfig, DeploymentEnvironment, MachineRequirements
+from opsmith.utils import slugify
 
 
 class MonolithicStrategy(BaseDeploymentStrategy):
@@ -52,8 +57,42 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             instance_type = cloud_provider.get_instance_type(
                 machine_reqs.cpu, machine_reqs.ram_gb, environment.region
             )
+            print(f"[bold green]Selected instance type: {instance_type}[/bold green]")
 
-        print(f"[bold green]Selected instance type: {instance_type}[/bold green]")
+        print("\n[bold blue]Provisioning monolithic infrastructure...[/bold blue]")
+        provider_name = cloud_provider.name().lower()
+        infra_path = (
+            self.agent_deps.src_dir
+            / settings.deployments_dir
+            / "environments"
+            / environment.name
+            / "monolithic_vm"
+        )
+        tf = TerraformProvisioner(working_dir=infra_path)
+
+        variables = {
+            "app_name": slugify(deployment_config.app_name),
+            "instance_type": instance_type,
+            "region": environment.region,
+            "ssh_pub_key": self._get_ssh_public_key(),
+        }
+        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+
+        try:
+            if not any(infra_path.iterdir()):
+                tf.copy_template("monolithic_vm", provider_name)
+
+            tf.init_and_apply(variables, env_vars=env_vars)
+
+            outputs = tf.get_output()
+            print("[bold green]Monolithic infrastructure provisioned successfully.[/bold green]")
+            if outputs:
+                print("[bold green]Outputs:[/bold green]")
+                print(yaml.dump(outputs))
+
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            print(f"[bold red]Failed to set up monolithic infrastructure: {e}[/bold red]")
+            raise
 
     def deploy(self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment):
         """Deploys the application."""
