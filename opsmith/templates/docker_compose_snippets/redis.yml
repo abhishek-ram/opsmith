@@ -1,0 +1,7 @@
+redis:
+  image: arm64v8/redis:{version}
+  restart: always
+  ports:
+    - "6379:6379"
+  volumes:
+    - redis-data:/data

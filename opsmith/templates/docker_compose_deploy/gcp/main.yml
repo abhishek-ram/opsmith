@@ -1,0 +1,47 @@
+- name: Deploy docker-compose stack
+  hosts: all
+  become: true
+  vars:
+    # src_docker_compose: path on local machine
+    # dest_docker_compose: path on remote machine
+    # env_file_content: content of .env file
+    # dest_env_file: path for .env file on remote machine
+    # remote_user: the user on the remote machine
+    # registry_host_url: "registry.com"
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ dest_docker_compose | dirname }}"
+        state: directory
+        owner: "{{ remote_user }}"
+        group: "{{ remote_user }}"
+        mode: "0755"
+
+    - name: Copy docker-compose.yml to remote
+      ansible.builtin.copy:
+        src: "{{ src_docker_compose }}"
+        dest: "{{ dest_docker_compose }}"
+        owner: "{{ remote_user }}"
+        group: "{{ remote_user }}"
+        mode: "0644"
+
+    - name: Copy .env file to remote
+      ansible.builtin.copy:
+        content: "{{ env_file_content }}"
+        dest: "{{ dest_env_file }}"
+        owner: "{{ remote_user }}"
+        group: "{{ remote_user }}"
+        mode: "0600"
+
+    - name: "Configure Docker for GCP Artifact Registry"
+      command: "gcloud auth configure-docker {{ registry_host_url }} --quiet"
+      when: gcp_artifact_registry_host is defined
+      changed_when: false
+      become_user: "{{ remote_user }}"
+
+    - name: Run docker-compose up
+      community.docker.docker_compose_v2:
+        project_src: "{{ dest_docker_compose | dirname }}"
+        state: present
+        pull: always
+      become_user: "{{ remote_user }}"

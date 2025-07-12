@@ -1,15 +1,22 @@
 import abc
 import os
 import platform
+import subprocess
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type
 
+import yaml
 from pydantic_ai import Agent
 from rich import print
 
 from opsmith.agent import AgentDeps
-from opsmith.types import DeploymentConfig, DeploymentEnvironment
+from opsmith.cloud_providers.base import BaseCloudProvider
+from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
+from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
+from opsmith.settings import settings
+from opsmith.types import DeploymentConfig, DeploymentEnvironment, ServiceTypeEnum
+from opsmith.utils import slugify
 
 
 class DeploymentStrategyRegistry:
@@ -28,11 +35,9 @@ class DeploymentStrategyRegistry:
 
     def _load_builtin_strategies(self):
         """Load built-in strategies"""
-
-        from opsmith.deployment_strategies.distributed import DistributedStrategy
         from opsmith.deployment_strategies.monolithic import MonolithicStrategy
 
-        for strategy_cls in [MonolithicStrategy, DistributedStrategy]:
+        for strategy_cls in [MonolithicStrategy]:
             self.register(strategy_cls)
 
     def _load_plugin_strategies(self):
@@ -88,16 +93,131 @@ class BaseDeploymentStrategy(abc.ABC):
     def __init__(self, agent: Agent, src_dir: Path):
         self.agent = agent
         self.agent_deps = AgentDeps(src_dir=Path(src_dir))
+        self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
 
-    @abc.abstractmethod
-    def setup_infra(self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment):
-        """Sets up the infrastructure for the deployment."""
-        raise NotImplementedError
+    def _setup_container_registry(
+        self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment
+    ) -> str:
+        """Sets up a container registry for the given region."""
+        app_name = deployment_config.app_name
+        # Registry name should probably be unique per region for the app
+        registry_name = slugify(f"{app_name}-{environment.region}")
 
-    @abc.abstractmethod
-    def deploy(self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment):
-        """Deploys the application."""
-        raise NotImplementedError
+        cloud_provider_instance = deployment_config.cloud_provider_instance
+        provider_name = cloud_provider_instance.name()
+
+        registry_infra_path = (
+            self.deployments_path
+            / "environments"
+            / "global"
+            / environment.region
+            / "container_registry"
+        )
+        tf = TerraformProvisioner(working_dir=registry_infra_path)
+
+        variables = {
+            "app_name": app_name,
+            "registry_name": registry_name,
+            "region": environment.region,
+        }
+        env_vars = cloud_provider_instance.provider_detail.model_dump(mode="json")
+
+        try:
+            if not any(registry_infra_path.iterdir()):
+                tf.copy_template("container_registry", provider_name)
+
+            tf.init_and_apply(variables, env_vars=env_vars)
+
+            outputs = tf.get_output()
+            registry_url = outputs.get("registry_url")
+
+            if registry_url:
+                print(f"\n[bold green]Container registry created. URL: {registry_url}[/bold green]")
+                return registry_url
+            else:
+                print(
+                    "[bold red]Could not find 'registry_url' in TerraformProvisioner outputs.[/bold"
+                    " red]"
+                )
+                raise ValueError("Could not find 'registry_url' in TerraformProvisioner outputs.")
+
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            print(f"[bold red]Failed to set up container registry: {e}[/bold red]")
+            raise
+
+    def _build_and_push_images(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        registry_url: str,
+    ) -> Dict[str, str]:
+        """Builds and pushes Docker images for each service."""
+        print("\n[bold blue]Starting to build and push images...[/bold blue]")
+
+        images = {}
+
+        buildable_service_types = [
+            ServiceTypeEnum.BACKEND_API,
+            ServiceTypeEnum.FULL_STACK,
+            ServiceTypeEnum.BACKEND_WORKER,
+        ]
+
+        for service in deployment_config.services:
+            if service.service_type not in buildable_service_types:
+                continue
+
+            # This logic is from generate_dockerfiles
+            service_dir_slug = f"{service.language}_{service.service_type.value}".replace(
+                " ", "_"
+            ).lower()
+            service_image_dir = "images"
+            dockerfile_path_abs = (
+                self.deployments_path / service_image_dir / service_dir_slug / "Dockerfile"
+            )
+
+            if not dockerfile_path_abs.exists():
+                print(
+                    f"[bold yellow]Dockerfile for {service_dir_slug} not found at"
+                    f" {dockerfile_path_abs}, skipping build.[/bold yellow]"
+                )
+                continue
+
+            image_name_slug = service_dir_slug
+
+            print(f"\n[bold]Building and pushing image for {image_name_slug}...[/bold]")
+
+            build_infra_path = (
+                self.deployments_path
+                / "environments"
+                / environment.name
+                / "docker_build_push"
+                / image_name_slug
+            )
+
+            ansible_runner = AnsibleProvisioner(working_dir=build_infra_path)
+
+            provider_name = deployment_config.cloud_provider["name"].lower()
+
+            extra_vars = {
+                "dockerfile_path": str(self.agent_deps.src_dir),
+                "dockerfile_name": str(dockerfile_path_abs),
+                "image_name_slug": image_name_slug,
+                "image_tag_name": "latest",
+                "region": environment.region,
+                "registry_url": registry_url,
+            }
+
+            ansible_runner.copy_template("docker_build_push", provider_name)
+            outputs = ansible_runner.run_playbook("main.yml", extra_vars)
+
+            print(f"[green]Successfully built and pushed image for {image_name_slug}[/green]")
+
+            if "image_url" in outputs:
+                images[image_name_slug] = outputs["image_url"]
+            else:
+                print(f"[bold red]Could not determine image URL for {image_name_slug}[/bold red]")
+
+        return images
 
     @staticmethod
     def _get_ssh_public_key() -> str:
@@ -173,3 +293,84 @@ class BaseDeploymentStrategy(abc.ABC):
             "[bold red]SSH public key not found. Please generate one using 'ssh-keygen'.[/bold red]"
         )
         raise FileNotFoundError("SSH public key not found.")
+
+    def _create_virtual_machine(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        instance_type: str,
+        cloud_provider: BaseCloudProvider,
+    ) -> Tuple[str, str]:
+        """Creates a new virtual machine for the deployment."""
+        provider_name = cloud_provider.name().lower()
+        infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
+        tf = TerraformProvisioner(working_dir=infra_path)
+
+        variables = {
+            "app_name": slugify(deployment_config.app_name),
+            "instance_type": instance_type,
+            "region": environment.region,
+            "ssh_pub_key": self._get_ssh_public_key(),
+        }
+        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+
+        try:
+            tf.copy_template("virtual_machine", provider_name)
+
+            tf.init_and_apply(variables, env_vars=env_vars)
+
+            outputs = tf.get_output()
+            print("[bold green]Monolithic infrastructure provisioned successfully.[/bold green]")
+            if outputs:
+                print("[bold green]Outputs:[/bold green]")
+                print(yaml.dump(outputs))
+
+            instance_public_ip = outputs.get("instance_public_ip")
+            if not instance_public_ip:
+                print(
+                    "[bold red]Could not find 'instance_public_ip' in Terraform outputs.[/bold red]"
+                )
+                raise ValueError("Could not find 'instance_public_ip' in Terraform outputs.")
+
+            ansible_user = outputs.get("ansible_user")
+            if not ansible_user:
+                print("[bold red]Could not find 'ansible_user' in Terraform outputs.[/bold red]")
+                raise ValueError("Could not find 'ansible_user' in Terraform outputs.")
+
+            print("\n[bold blue]Setting up Docker on the new instance...[/bold blue]")
+
+            setup_docker_path = (
+                self.deployments_path / "environments" / environment.name / "docker_setup"
+            )
+            ansible_runner = AnsibleProvisioner(working_dir=setup_docker_path)
+            ansible_runner.copy_template("docker_setup", provider_name)
+            ansible_runner.run_playbook(
+                "main.yml",
+                extra_vars={},
+                inventory=instance_public_ip,
+                user=ansible_user,
+            )
+            print("[bold green]Docker setup complete.[/bold green]")
+
+            return instance_public_ip, ansible_user
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            print(f"[bold red]Failed to set up monolithic infrastructure: {e}[/bold red]")
+            raise
+
+    @abc.abstractmethod
+    def setup_infra(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+    ):
+        """Sets up the infrastructure for the deployment."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def deploy(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+    ):
+        """Deploys the application."""
+        raise NotImplementedError

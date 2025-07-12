@@ -7,3 +7,8 @@ output "instance_name" {
   description = "The name of the GCE instance."
   value       = google_compute_instance.app_server.name
 }
+
+output "ansible_user" {
+  description = "The user for Ansible to connect with."
+  value       = "dev"
+}

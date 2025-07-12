@@ -7,6 +7,8 @@ from typing import List, Literal
 from pydantic import BaseModel
 from pydantic_ai import Agent, ModelRetry, RunContext
 
+from opsmith.utils import generate_secret_string
+
 
 class ModelConfig(BaseModel):
     provider: Literal["openai", "anthropic", "google-gla"]
@@ -115,5 +117,20 @@ def build_agent(model_config: ModelConfig, instrument: bool = False) -> Agent:
                 content = f.read()
             contents.append(content)
         return contents
+
+    @agent.tool()
+    def generate_secret(ctx: RunContext[AgentDeps], length: int = 32) -> str:
+        """
+        Generates a secure random string of a specified length.
+        Useful for creating passwords, API keys, or other secrets.
+
+        Args:
+            ctx: The run context object.
+            length: The desired length of the secret string. Defaults to 32.
+
+        Returns:
+            A secure random string.
+        """
+        return generate_secret_string(length)
 
     return agent

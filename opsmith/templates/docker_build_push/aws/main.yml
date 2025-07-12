@@ -49,4 +49,4 @@
 
     - name: Print image URL
       debug:
-        msg: "Image pushed successfully to: {{ image_name }}:{{ image_tag }}"
+        msg: "OPSMITH_OUTPUT_IMAGE_URL={{ image_name }}:{{ image_tag }}"

@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,12 +46,15 @@ class BaseInfrastructureProvisioner:
 
         print(f"[green]{self.command_name} files copied to: {self.working_dir}[/green]")
 
-    def _run_command(self, command: List[str], env: Optional[Dict[str, str]] = None):
+    def _run_command(
+        self, command: List[str], env: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
         """Runs a command and streams its output."""
         print(f"\n[bold]Running `{self.command_name}` in {self.working_dir}...[/bold]")
 
         process_env = os.environ.copy()
         process_env.update(env or {})
+        outputs = {}
 
         try:
             process = subprocess.Popen(
@@ -63,7 +67,13 @@ class BaseInfrastructureProvisioner:
                 env=process_env,
             )
             for line in iter(process.stdout.readline, ""):
-                print(f"[grey50]{line.strip()}[/grey50]")
+                stripped_line = line.strip()
+                print(f"[grey50]{stripped_line}[/grey50]")
+                match = re.search(r'"msg":\s*"OPSMITH_OUTPUT_(\w+)=([^"]*)"', stripped_line)
+                if match:
+                    key = match.group(1).lower()
+                    value = match.group(2)
+                    outputs[key] = value
             process.wait()
             if process.returncode != 0:
                 raise subprocess.CalledProcessError(process.returncode, command)
@@ -79,3 +89,4 @@ class BaseInfrastructureProvisioner:
                 " red]"
             )
             raise
+        return outputs

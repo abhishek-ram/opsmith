@@ -1,5 +1,7 @@
 import re
+import secrets
 import shutil
+import string
 import subprocess
 from typing import List
 
@@ -45,6 +47,17 @@ def slugify(value: str) -> str:
     :rtype: str
     """
     return re.sub(r"[^a-z0-9-]", "", value.lower().replace(" ", "-"))
+
+
+def generate_secret_string(length: int = 32) -> str:
+    """
+    Generates a secure random string.
+
+    :param length: The length of the secret string to generate.
+    :return: A secure random string.
+    """
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def build_logo() -> Text:

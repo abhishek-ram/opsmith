@@ -446,8 +446,11 @@ def deploy(ctx: typer.Context):
         return
 
     selected_env = deployment_config.get_environment(selected_env_name)
-    registry_url = deployer.setup_container_registry(deployment_config, selected_env)
-    deployer.build_and_push_images(deployment_config, selected_env, registry_url)
+    deployment_strategy = DEPLOYMENT_STRATEGY_REGISTRY.get_strategy_class(selected_env.strategy)(
+        deployer.agent,
+        ctx.parent.params["src_dir"],
+    )
+    deployment_strategy.deploy(deployment_config, selected_env)
 
     print(f"\nSelected environment: [bold cyan]{selected_env_name}[/bold cyan]")
     # Future deployment logic will go here

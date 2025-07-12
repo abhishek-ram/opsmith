@@ -14,8 +14,19 @@ class AnsibleProvisioner(BaseInfrastructureProvisioner):
         super().__init__(
             working_dir=working_dir, command_name="Ansible", executable="ansible-playbook"
         )
+        ansible_cfg_path = self.working_dir / "ansible.cfg"
+        with open(ansible_cfg_path, "w", encoding="utf-8") as f:
+            f.write("[defaults]\n")
+            f.write("host_key_checking = False\n")
+            f.write("deprecation_warnings = False\n")
 
-    def run_playbook(self, playbook_name: str, extra_vars: Dict[str, str]):
+    def run_playbook(
+        self,
+        playbook_name: str,
+        extra_vars: Dict[str, str],
+        inventory: str = None,
+        user: str = None,
+    ) -> Dict[str, str]:
         """
         Runs an ansible playbook.
         """
@@ -27,7 +38,13 @@ class AnsibleProvisioner(BaseInfrastructureProvisioner):
             raise FileNotFoundError(f"Playbook not found: {playbook_path}")
 
         command = ["ansible-playbook", str(playbook_path)]
+        if inventory:
+            # The comma is important for a single host inventory
+            command.extend(["-i", f"{inventory},"])
+        if user:
+            command.extend(["--user", user])
+
         if extra_vars:
             command.extend(["--extra-vars", json.dumps(extra_vars)])
 
-        self._run_command(command)
+        return self._run_command(command)

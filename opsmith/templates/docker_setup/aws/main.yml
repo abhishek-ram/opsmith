@@ -1,0 +1,36 @@
+- name: Install and configure Docker on AWS EC2
+  hosts: all
+  become: true
+  tasks:
+    - name: Install Docker
+      ansible.builtin.yum:
+        name: docker
+        state: present
+
+    - name: Set compose arch
+      ansible.builtin.set_fact:
+        compose_arch: "{{ 'aarch64' if ansible_facts.architecture == 'aarch64' else 'x86_64' }}"
+
+    - name: Create docker cli-plugins directory
+      ansible.builtin.file:
+        path: "/usr/local/lib/docker/cli-plugins"
+        state: directory
+        mode: "0755"
+
+    - name: Install Docker Compose
+      ansible.builtin.get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.38.2/docker-compose-linux-{{ compose_arch }}"
+        dest: "/usr/local/lib/docker/cli-plugins/docker-compose"
+        mode: "0755"
+
+    - name: Start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add remote user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes

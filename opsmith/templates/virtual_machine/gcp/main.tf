@@ -3,9 +3,24 @@ provider "google" {
   region  = var.region
 }
 
+resource "google_compute_network" "vpc_network" {
+  project                 = var.project_id
+  name                    = "${var.app_name}-vpc"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "vpc_subnetwork" {
+  project                  = var.project_id
+  name                     = "${var.app_name}-subnet"
+  ip_cidr_range            = "10.0.1.0/24"
+  region                   = var.region
+  network                  = google_compute_network.vpc_network.id
+  private_ip_google_access = true
+}
+
 resource "google_compute_firewall" "allow_ssh" {
   name    = "${var.app_name}-allow-ssh"
-  network = "default"
+  network = google_compute_network.vpc_network.name
   allow {
     protocol = "tcp"
     ports    = ["22"]
@@ -27,7 +42,7 @@ resource "google_compute_instance" "app_server" {
   }
 
   network_interface {
-    network = "default"
+    subnetwork = google_compute_subnetwork.vpc_subnetwork.id
     access_config {
       // Ephemeral IP
     }

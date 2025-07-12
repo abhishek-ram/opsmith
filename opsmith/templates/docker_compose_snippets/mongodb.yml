@@ -1,0 +1,11 @@
+mongodb:
+  image: rapidfort/mongodb-official:{version}
+  restart: always
+  environment:
+    - MONGO_INITDB_DATABASE={app_name}
+    - MONGO_INITDB_ROOT_USERNAME=${{MONGO_INITDB_ROOT_USERNAME}}
+    - MONGO_INITDB_ROOT_PASSWORD=${{MONGO_INITDB_ROOT_PASSWORD}}
+  volumes:
+    - mongodb-data:/data/db
+  ports:
+    - "27017:27017"

@@ -1,0 +1,13 @@
+weaviate:
+  image: cr.weaviate.io/semitechnologies/weaviate:{version}
+  restart: on-failure
+  ports:
+    - "8080:8080"
+    - "50051:50051"
+  volumes:
+    - weaviate-data:/var/lib/weaviate
+  environment:
+    AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+    PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+    DEFAULT_VECTORIZER_MODULE: 'none'
+    CLUSTER_HOSTNAME: 'node1'

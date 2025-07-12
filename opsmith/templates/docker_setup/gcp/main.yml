@@ -1,0 +1,39 @@
+- name: Verify Docker on GCP GCE (COS)
+  hosts: all
+  become: true
+  tasks:
+    - name: Check if Docker is active
+      ansible.builtin.command: "systemctl is-active docker"
+      register: docker_status
+      changed_when: false
+      failed_when: docker_status.rc != 0
+
+    - name: Set compose arch
+      ansible.builtin.set_fact:
+        compose_arch: "{{ 'aarch64' if ansible_facts.architecture == 'aarch64' else 'x86_64' }}"
+
+    - name: Create docker cli-plugins directory
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.docker/cli-plugins"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Install Docker Compose
+      ansible.builtin.get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.38.2/docker-compose-linux-{{ compose_arch }}"
+        dest: "/home/{{ ansible_user }}/.docker/cli-plugins/docker-compose"
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Add remote user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Print Docker status
+      ansible.builtin.debug:
+        msg: "Docker is already installed and running on Container-Optimized OS."

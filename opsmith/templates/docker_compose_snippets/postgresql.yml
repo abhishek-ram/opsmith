@@ -1,0 +1,11 @@
+postgresql:
+  image: arm64v8/postgresql:{version}
+  restart: always
+  environment:
+    - POSTGRES_DB={app_name}
+    - POSTGRES_USER={app_name}
+    - POSTGRES_PASSWORD=${{POSTGRES_PASSWORD}}
+  volumes:
+    - postgresql-data:/var/lib/postgresql/data
+  ports:
+    - "5432:5432"

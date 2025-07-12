@@ -1,0 +1,5 @@
+service:
+  image: "{image_name}"
+  restart: always
+  ports:
+    - "{port}:{port}"

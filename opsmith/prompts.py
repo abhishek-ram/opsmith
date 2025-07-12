@@ -113,3 +113,36 @@ Provide the estimated number of virtual CPU cores and the amount of RAM in gigab
 
 Return the information as a `MachineRequirements` JSON object.
 """
+
+DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE = """
+You are an expert DevOps engineer. Your task is to generate a complete docker-compose.yml file and its associated environment variables.
+You will be provided with a base docker-compose file, snippets for services and infrastructure, and detailed service information.
+Your job is to combine these into a single valid docker-compose.yml file and provide all environment variables.
+
+**docker-compose.yml instructions:**
+- The `service:` key in service snippets should be replaced by the `service_name_slug`.
+- The service snippets are already filled with the correct image names.
+- For services of type `BACKEND_API` and `FULL_STACK`, add traefik labels for routing. Use the service name slug as the host rule. e.g. `Host(`{{service_name_slug}}.localhost`)`
+- Place all services and infra dependencies under the `services:` key in the final yaml.
+- The base file defines a network. All services should be part of this network.
+- Each application service should have a `depends_on` section listing all infrastructure dependency services. The service names for infra dependencies are the keys from `infra_snippets`.
+- For each application service, add an `environment` section to its definition in `docker-compose.yml`. Use environment variable references, e.g. `VAR_NAME=${{VAR_NAME}}`.
+
+**Environment and Secrets instructions:**
+- For infrastructure service snippets that use placeholders like `${{VAR}}`, you must generate a secure value for `VAR`. Use the `generate_secret` tool to create secure passwords or other secret values.
+- For each application service, you must determine its environment variables. Use the `env_vars` from `Service Info` as a base.
+- You must deduce values for variables where possible. For example, if a service needs a database URL and there is a `postgresql` infrastructure dependency, construct the correct connection string (e.g., `postgresql://user:password@postgresql:5432/dbname`). The service name in the docker network will be the key from `infra_snippets` (e.g., `postgresql`).
+- Return the complete content for a `.env` file in the `env_file_content` field. The content should be a string with each variable on a new line, in `KEY="VALUE"` format. Handle any potential name collisions by using service-specific prefixes if necessary.
+
+Base docker-compose:
+{base_compose}
+
+Service Info (service_name_slug: service_details):
+{services_info_yaml}
+
+Service snippets (service_name_slug: snippet):
+{service_snippets}
+
+Infrastructure dependency snippets (provider_name: snippet):
+{infra_snippets}
+"""
