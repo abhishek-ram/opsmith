@@ -1,7 +1,10 @@
+from io import StringIO
 from pathlib import Path
 from typing import Dict, Tuple
 
+import inquirer
 import yaml
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 from rich import print
 
@@ -45,6 +48,54 @@ class MonolithicStrategy(BaseDeploymentStrategy):
     @classmethod
     def description(cls) -> str:
         return "Deploys the entire application as a single unit."
+
+    @staticmethod
+    def _confirm_env_vars(deployment_config: DeploymentConfig, env_file_content: str) -> str:
+        """
+        Parses environment variables from LLM response, confirms with user, and returns updated content.
+        """
+        # Parse env_file_content from LLM
+        llm_env_vars = dotenv_values(stream=StringIO(env_file_content))
+
+        # Collect unique env vars from services
+        unique_env_vars = {}
+        for service in deployment_config.services:
+            for env_var in service.env_vars:
+                if env_var.key not in unique_env_vars:
+                    unique_env_vars[env_var.key] = env_var
+
+        if not unique_env_vars:
+            return env_file_content
+
+        # Prepare questions for inquirer
+        questions = []
+        for key, env_var in sorted(unique_env_vars.items()):
+            default_value = llm_env_vars.get(key) or env_var.default_value
+            questions.append(
+                inquirer.Text(
+                    name=key,
+                    message=f"Enter value for {key}",
+                    default=default_value,
+                )
+            )
+
+        if not questions:
+            return env_file_content
+
+        # Prompt user
+        print("\n[bold]Please confirm or provide values for environment variables:[/bold]")
+        answers = inquirer.prompt(questions)
+        if not answers:
+            print(
+                "[bold red]Environment variable configuration aborted. Using LLM generated"
+                " values.[/bold red]"
+            )
+            return env_file_content
+
+        # Reconstruct env file content
+        final_env_vars = {**llm_env_vars, **answers}
+        env_lines = [f'{key}="{value}"' for key, value in final_env_vars.items()]
+        return "\n".join(env_lines)
 
     def _deploy_docker_compose(
         self,
@@ -158,6 +209,11 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             response = self.agent.run_sync(
                 prompt, output_type=DockerComposeContent, deps=self.agent_deps
             )
+
+        confirmed_env_content = self._confirm_env_vars(
+            deployment_config, response.output.env_file_content
+        )
+        response.output.env_file_content = confirmed_env_content
 
         self._deploy_docker_compose(
             deployment_config,

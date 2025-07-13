@@ -1,5 +1,5 @@
 postgresql:
-  image: arm64v8/postgresql:{version}
+  image: arm64v8/postgres:{version}
   restart: always
   environment:
     - POSTGRES_DB={app_name}

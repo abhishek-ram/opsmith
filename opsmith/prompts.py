@@ -130,9 +130,9 @@ Your job is to combine these into a single valid docker-compose.yml file and pro
 
 **Environment and Secrets instructions:**
 - For infrastructure service snippets that use placeholders like `${{VAR}}`, you must generate a secure value for `VAR`. Use the `generate_secret` tool to create secure passwords or other secret values.
-- For each application service, you must determine its environment variables. Use the `env_vars` from `Service Info` as a base.
+- For each application service, you must determine its environment variables. Use the `env_vars` from `Service Info` as a base. Do not change the variable names (`key`).
 - You must deduce values for variables where possible. For example, if a service needs a database URL and there is a `postgresql` infrastructure dependency, construct the correct connection string (e.g., `postgresql://user:password@postgresql:5432/dbname`). The service name in the docker network will be the key from `infra_snippets` (e.g., `postgresql`).
-- Return the complete content for a `.env` file in the `env_file_content` field. The content should be a string with each variable on a new line, in `KEY="VALUE"` format. Handle any potential name collisions by using service-specific prefixes if necessary.
+- Return the complete content for a `.env` file in the `env_file_content` field. The content should be a string with each variable on a new line, in `KEY="VALUE"` format.
 
 Base docker-compose:
 {base_compose}
