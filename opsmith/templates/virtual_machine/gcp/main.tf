@@ -18,12 +18,12 @@ resource "google_compute_subnetwork" "vpc_subnetwork" {
   private_ip_google_access = true
 }
 
-resource "google_compute_firewall" "allow_ssh" {
-  name    = "${var.app_name}-allow-ssh"
+resource "google_compute_firewall" "allow_traffic" {
+  name    = "${var.app_name}-allow-traffic"
   network = google_compute_network.vpc_network.name
   allow {
     protocol = "tcp"
-    ports    = ["22"]
+    ports    = ["22", "80"]
   }
   source_ranges = ["0.0.0.0/0"]
   target_tags   = ["${var.app_name}-monolithic-server"]
