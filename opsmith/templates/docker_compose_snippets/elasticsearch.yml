@@ -10,5 +10,7 @@ elasticsearch:
       hard: -1
   volumes:
     - elasticsearch-data:/usr/share/elasticsearch/data
+  network:
+    - default
   ports:
     - "9200:9200"

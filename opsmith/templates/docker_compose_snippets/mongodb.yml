@@ -5,6 +5,8 @@ mongodb:
     - MONGO_INITDB_DATABASE={app_name}
     - MONGO_INITDB_ROOT_USERNAME=${{MONGO_INITDB_ROOT_USERNAME}}
     - MONGO_INITDB_ROOT_PASSWORD=${{MONGO_INITDB_ROOT_PASSWORD}}
+  network:
+    - default
   volumes:
     - mongodb-data:/data/db
   ports:

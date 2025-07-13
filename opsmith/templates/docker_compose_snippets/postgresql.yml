@@ -5,6 +5,8 @@ postgresql:
     - POSTGRES_DB={app_name}
     - POSTGRES_USER={app_name}
     - POSTGRES_PASSWORD=${{POSTGRES_PASSWORD}}
+  network:
+    - default
   volumes:
     - postgresql-data:/var/lib/postgresql/data
   ports:

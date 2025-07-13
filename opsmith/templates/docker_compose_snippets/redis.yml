@@ -3,5 +3,7 @@ redis:
   restart: always
   ports:
     - "6379:6379"
+  network:
+    - default
   volumes:
     - redis-data:/data
