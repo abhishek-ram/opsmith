@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Union
 
 from rich import print
 
@@ -23,7 +23,7 @@ class AnsibleProvisioner(BaseInfrastructureProvisioner):
     def run_playbook(
         self,
         playbook_name: str,
-        extra_vars: Dict[str, str],
+        extra_vars: Dict[str, Union[str, List[str]]],
         inventory: str = None,
         user: str = None,
     ) -> Dict[str, str]:

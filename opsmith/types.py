@@ -184,3 +184,12 @@ class DeploymentConfig(ServiceList):
         """Retrieves a cloud provider instance by name."""
         provider_cls = CLOUD_PROVIDER_REGISTRY.get_provider_class(self.cloud_provider.get("name"))
         return provider_cls(self.cloud_provider)
+
+    def get_env_var_defaults(self) -> dict:
+        """Retrieves a dictionary of environment variable defaults."""
+        env_var_defaults = {}
+        for service in self.services:
+            for env_var in service.env_vars:
+                if env_var.default_value:
+                    env_var_defaults[env_var.key] = env_var.default_value
+        return env_var_defaults

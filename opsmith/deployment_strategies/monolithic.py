@@ -1,6 +1,9 @@
+import base64
+import json
+import subprocess
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import inquirer
 import yaml
@@ -13,6 +16,7 @@ from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
 from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import (
     DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE,
+    DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE,
     MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE,
 )
 from opsmith.spinner import WaitingSpinner
@@ -25,6 +29,17 @@ from opsmith.types import (
 from opsmith.utils import slugify
 
 
+class DockerComposeLogValidation(BaseModel):
+    """The result of validating the logs from a docker-compose deployment."""
+
+    is_successful: bool = Field(
+        ..., description="Whether the deployment is considered successful based on container logs."
+    )
+    reason: Optional[str] = Field(
+        None, description="If not successful, an explanation of what went wrong."
+    )
+
+
 class DockerComposeContent(BaseModel):
     """Describes the generated docker-compose.yml file content."""
 
@@ -35,6 +50,9 @@ class DockerComposeContent(BaseModel):
             "The content of the .env file. This includes generated secrets for infrastructure and"
             " composed variables for application services."
         ),
+    )
+    reason: Optional[str] = Field(
+        None, description="The reason for the failure of the last deployment attempt."
     )
 
 
@@ -50,27 +68,24 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         return "Deploys the entire application as a single unit."
 
     @staticmethod
-    def _confirm_env_vars(deployment_config: DeploymentConfig, env_file_content: str) -> str:
+    def _confirm_env_vars(
+        deployment_config: DeploymentConfig,
+        env_file_content: str,
+        existing_confirmed_vars: Dict[str, str],
+    ) -> Tuple[str, Dict[str, str]]:
         """
         Parses environment variables from LLM response, confirms with user, and returns updated content.
         """
         # Parse env_file_content from LLM
-        llm_env_vars = dotenv_values(stream=StringIO(env_file_content))
+        env_file_vars = dotenv_values(stream=StringIO(env_file_content))
 
-        # Collect unique env vars from services
-        unique_env_vars = {}
-        for service in deployment_config.services:
-            for env_var in service.env_vars:
-                if env_var.key not in unique_env_vars:
-                    unique_env_vars[env_var.key] = env_var
-
-        if not unique_env_vars:
-            return env_file_content
+        env_defaults = deployment_config.get_env_var_defaults()
 
         # Prepare questions for inquirer
         questions = []
-        for key, env_var in sorted(unique_env_vars.items()):
-            default_value = llm_env_vars.get(key) or env_var.default_value
+        for key, value in sorted(env_file_vars.items()):
+            # Precedence: existing confirmed > llm > code default
+            default_value = existing_confirmed_vars.get(key) or value or env_defaults.get(key)
             questions.append(
                 inquirer.Text(
                     name=key,
@@ -79,23 +94,16 @@ class MonolithicStrategy(BaseDeploymentStrategy):
                 )
             )
 
-        if not questions:
-            return env_file_content
-
         # Prompt user
         print("\n[bold]Please confirm or provide values for environment variables:[/bold]")
         answers = inquirer.prompt(questions)
-        if not answers:
-            print(
-                "[bold red]Environment variable configuration aborted. Using LLM generated"
-                " values.[/bold red]"
-            )
-            return env_file_content
+
+        # For the .env file, merge with precedence: user answers > existing confirmed > llm
+        final_env_vars_for_file = {**env_file_vars, **answers}
 
         # Reconstruct env file content
-        final_env_vars = {**llm_env_vars, **answers}
-        env_lines = [f'{key}="{value}"' for key, value in final_env_vars.items()]
-        return "\n".join(env_lines)
+        env_lines = [f'{key}="{value}"' for key, value in final_env_vars_for_file.items()]
+        return "\n".join(env_lines), final_env_vars_for_file
 
     def _deploy_docker_compose(
         self,
@@ -105,7 +113,10 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         ansible_user: str,
         registry_url: str,
         docker_compose_response,
-    ):
+    ) -> str:
+        """
+        Deploys the docker-compose stack and returns container logs for validation.
+        """
         print("\n[bold blue]Deploying docker-compose stack...[/bold blue]")
         deploy_compose_path = (
             self.deployments_path / "environments" / environment.name / "docker_compose_deploy"
@@ -119,7 +130,7 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             f.write(docker_compose_content)
         print(f"[bold green]docker-compose.yml generated at {docker_compose_path}[/bold green]")
 
-        print("\n[bold blue]Deploying docker-compose stack...[/bold blue]")
+        print("\n[bold blue]Attempting to deploy and get logs...[/bold blue]")
         ansible_runner = AnsibleProvisioner(working_dir=deploy_compose_path)
         ansible_runner.copy_template(
             "docker_compose_deploy", deployment_config.cloud_provider_instance.name().lower()
@@ -133,13 +144,19 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             "registry_host_url": registry_url.split("/")[0],
         }
 
-        ansible_runner.run_playbook(
-            "main.yml",
-            extra_vars=extra_vars,
-            inventory=instance_public_ip,
-            user=ansible_user,
-        )
-        print("[bold green]Docker-compose stack deployed.[/bold green]")
+        try:
+            outputs = ansible_runner.run_playbook(
+                "main.yml",
+                extra_vars=extra_vars,
+                inventory=instance_public_ip,
+                user=ansible_user,
+            )
+            logs_b64 = outputs.get("docker_logs", "")
+            if logs_b64:
+                return base64.b64decode(logs_b64.encode("ascii")).decode("utf-8")
+            return ""
+        except subprocess.CalledProcessError as e:
+            return f"Ansible playbook execution failed.\nStdout:\n{e.stdout}\n\nStderr:\n{e.stderr}"
 
     def _generate_docker_compose(
         self,
@@ -157,8 +174,8 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         with open(base_compose_path, "r", encoding="utf-8") as f:
             base_compose = f.read().format(app_name=slugify(deployment_config.app_name))
 
-        service_snippets = {}
         services_info = {}
+        service_snippets_list = []
         for service in deployment_config.services:
             service_name_slug = f"{service.language}_{service.service_type.value}".replace(
                 " ", "_"
@@ -184,9 +201,10 @@ class MonolithicStrategy(BaseDeploymentStrategy):
                     continue
 
                 content = content.format(image_name=image_url, port=8000)
-                service_snippets[service_name_slug] = content
+                service_snippets_list.append(f"# {service_name_slug}\n{content}")
+        service_snippets = "\n\n".join(service_snippets_list)
 
-        infra_snippets = {}
+        infra_snippets_list = []
         for infra in deployment_config.infra_deps:
             snippet_path = template_dir / "docker_compose_snippets" / f"{infra.provider}.yml"
             if snippet_path.exists():
@@ -195,34 +213,77 @@ class MonolithicStrategy(BaseDeploymentStrategy):
                     content = content.format(
                         version=infra.version, app_name=slugify(deployment_config.app_name)
                     )
-                    infra_snippets[infra.provider] = content
+                    infra_snippets_list.append(f"# {infra.provider}\n{content}")
+        infra_snippets = "\n\n".join(infra_snippets_list)
 
         services_info_yaml = yaml.dump(services_info)
-        prompt = DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE.format(
-            base_compose=base_compose,
-            services_info_yaml=services_info_yaml,
-            service_snippets=yaml.dump(service_snippets),
-            infra_snippets=yaml.dump(infra_snippets),
-        )
 
-        with WaitingSpinner(text="Waiting for LLM to generate docker-compose.yml", delay=0.1):
-            response = self.agent.run_sync(
-                prompt, output_type=DockerComposeContent, deps=self.agent_deps
+        max_attempts = 3
+        confirmed_env_vars = {}
+        messages = []
+        for attempt in range(max_attempts):
+            prompt = DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE.format(
+                base_compose=base_compose,
+                services_info_yaml=services_info_yaml,
+                service_snippets=service_snippets,
+                infra_snippets=infra_snippets,
             )
 
-        confirmed_env_content = self._confirm_env_vars(
-            deployment_config, response.output.env_file_content
-        )
-        response.output.env_file_content = confirmed_env_content
+            spinner_text = (
+                "Waiting for LLM to generate docker-compose.yml"
+                if attempt == 0
+                else "Waiting for LLM to correct docker-compose.yml"
+            )
+            with WaitingSpinner(text=spinner_text, delay=0.1):
+                docker_compose_response = self.agent.run_sync(
+                    prompt,
+                    output_type=DockerComposeContent,
+                    deps=self.agent_deps,
+                    message_history=messages,
+                )
 
-        self._deploy_docker_compose(
-            deployment_config,
-            environment,
-            instance_public_ip,
-            ansible_user,
-            registry_url,
-            response.output,
-        )
+            confirmed_env_content, confirmed_env_vars = self._confirm_env_vars(
+                deployment_config,
+                docker_compose_response.output.env_file_content,
+                confirmed_env_vars,
+            )
+            docker_compose_response.output.env_file_content = confirmed_env_content
+
+            deployment_output = self._deploy_docker_compose(
+                deployment_config,
+                environment,
+                instance_public_ip,
+                ansible_user,
+                registry_url,
+                docker_compose_response.output,
+            )
+
+            with WaitingSpinner("Validating deployment logs with LLM...", delay=0.1):
+                log_validation_prompt = DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE.format(
+                    container_logs=deployment_output
+                )
+                log_validation_response = self.agent.run_sync(
+                    log_validation_prompt,
+                    output_type=DockerComposeLogValidation,
+                    deps=self.agent_deps,
+                )
+
+            if log_validation_response.output.is_successful:
+                print("[bold green]Docker compose deployment was successful.[/bold green]")
+                return
+
+            print(
+                f"[bold yellow]Attempt {attempt + 1}/{max_attempts} failed. Retrying with"
+                " feedback...[/bold yellow]"
+            )
+            messages = (
+                docker_compose_response.new_messages() + log_validation_response.new_messages()
+            )
+        else:
+            print(
+                "[bold red]Failed to generate and deploy a valid docker-compose file after"
+                f" {max_attempts} attempts.[/bold red]"
+            )
 
     def setup_infra(
         self,
@@ -301,6 +362,64 @@ class MonolithicStrategy(BaseDeploymentStrategy):
 
         return instance_public_ip, ansible_user
 
+    def _fetch_remote_deployment_files(
+        self,
+        environment: DeploymentEnvironment,
+        instance_public_ip: str,
+        ansible_user: str,
+    ) -> DockerComposeContent:
+        print("\n[bold blue]Fetching current deployment files from server...[/bold blue]")
+        fetch_files_path = (
+            self.deployments_path / "environments" / environment.name / "fetch_remote_files"
+        )
+
+        ansible_runner = AnsibleProvisioner(working_dir=fetch_files_path)
+        # We use 'common' as provider, since fetching is cloud-agnostic
+        ansible_runner.copy_template("fetch_remote_files", "common")
+
+        docker_compose_path = f"/home/{ansible_user}/app/docker-compose.yml"
+        env_file_path = f"/home/{ansible_user}/app/.env"
+        extra_vars = {
+            "remote_files": [docker_compose_path, env_file_path],
+        }
+
+        try:
+            outputs = ansible_runner.run_playbook(
+                "main.yml",
+                extra_vars=extra_vars,
+                inventory=instance_public_ip,
+                user=ansible_user,
+            )
+
+            fetched_files_b64 = outputs.get("fetched_files", "")
+            if not fetched_files_b64:
+                print(
+                    "[bold red]Could not fetch existing deployment files from server. Please run"
+                    " `opsmith setup` again on this environment.[/bold red]"
+                )
+                raise ValueError("Failed to fetch deployment files.")
+
+            fetched_files_json = base64.b64decode(fetched_files_b64.encode("ascii")).decode("utf-8")
+            fetched_files = json.loads(fetched_files_json)
+
+            compose_content_b64 = fetched_files.get(docker_compose_path)
+            env_content_b64 = fetched_files.get(env_file_path)
+
+            if not compose_content_b64 or not env_content_b64:
+                print(
+                    "[bold red]Could not fetch existing deployment files from server. Please run"
+                    " `opsmith setup` again on this environment.[/bold red]"
+                )
+                raise ValueError("Failed to fetch deployment files.")
+
+            compose_content = base64.b64decode(compose_content_b64.encode("ascii")).decode("utf-8")
+            env_content = base64.b64decode(env_content_b64.encode("ascii")).decode("utf-8")
+
+            return DockerComposeContent(content=compose_content, env_file_content=env_content)
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+            print(f"[bold red]Failed to fetch remote deployment files: {e}[/bold red]")
+            raise
+
     def deploy(
         self,
         deployment_config: DeploymentConfig,
@@ -310,8 +429,17 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         instance_public_ip, ansible_user = self._load_virtual_machine_details(environment)
 
         registry_url = self._setup_container_registry(deployment_config, environment)
-        images = self._build_and_push_images(deployment_config, environment, registry_url)
+        self._build_and_push_images(deployment_config, environment, registry_url)
 
-        self._generate_docker_compose(
-            deployment_config, environment, images, instance_public_ip, ansible_user, registry_url
+        docker_compose_response = self._fetch_remote_deployment_files(
+            environment, instance_public_ip, ansible_user
+        )
+
+        self._deploy_docker_compose(
+            deployment_config,
+            environment,
+            instance_public_ip,
+            ansible_user,
+            registry_url,
+            docker_compose_response,
         )

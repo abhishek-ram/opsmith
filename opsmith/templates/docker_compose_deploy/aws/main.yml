@@ -38,23 +38,38 @@
         - name: Get ECR login password
           command: "aws ecr get-login-password"
           register: ecr_login
-          changed_when: false
 
         - name: Login to ECR
           command: "docker login --username AWS --password {{ ecr_login.stdout }} {{ registry_host_url }}"
           no_log: true
-          changed_when: false
-      when: aws_ecr_host is defined
       become_user: "{{ remote_user }}"
       rescue:
         - name: Handle login failure
           fail:
             msg: "Failed to login to AWS ECR. Please check your credentials."
 
+    - name: Run docker-compose up
+      community.docker.docker_compose_v2:
+        project_src: "{{ dest_docker_compose | dirname }}"
+        state: present
+        pull: always
+        recreate: always
+        remove_orphans: yes
+      become_user: "{{ remote_user }}"
 
-#    - name: Run docker-compose up
-#      community.docker.docker_compose_v2:
-#        project_src: "{{ dest_docker_compose | dirname }}"
-#        state: present
-#        pull: always
-#      become_user: "{{ remote_user }}"
+    - name: Wait for services to stabilize
+      ansible.builtin.pause:
+        seconds: 15
+
+    - name: Get docker container logs
+      ansible.builtin.shell: "docker compose logs --no-color"
+      args:
+        chdir: "{{ dest_docker_compose | dirname }}"
+      register: logs
+      become_user: "{{ remote_user }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Return logs for analysis
+      ansible.builtin.debug:
+        msg: "OPSMITH_OUTPUT_DOCKER_LOGS={{ logs.stdout | b64encode }}"

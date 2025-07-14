@@ -55,6 +55,7 @@ class BaseInfrastructureProvisioner:
         process_env = os.environ.copy()
         process_env.update(env or {})
         outputs = {}
+        full_output = []
 
         try:
             process = subprocess.Popen(
@@ -68,6 +69,7 @@ class BaseInfrastructureProvisioner:
             )
             for line in iter(process.stdout.readline, ""):
                 stripped_line = line.strip()
+                full_output.append(stripped_line)
                 print(f"[grey50]{stripped_line}[/grey50]")
                 match = re.search(r'"msg":\s*"OPSMITH_OUTPUT_(\w+)=([^"]*)"', stripped_line)
                 if match:
@@ -76,7 +78,9 @@ class BaseInfrastructureProvisioner:
                     outputs[key] = value
             process.wait()
             if process.returncode != 0:
-                raise subprocess.CalledProcessError(process.returncode, command)
+                raise subprocess.CalledProcessError(
+                    process.returncode, command, output="\n".join(full_output)
+                )
         except FileNotFoundError:
             print(
                 f"[bold red]Error: '{self.executable}' command not found. Please ensure"
@@ -84,6 +88,7 @@ class BaseInfrastructureProvisioner:
             )
             raise
         except subprocess.CalledProcessError as e:
+            # The 'output' parameter for CalledProcessError sets the 'stdout' attribute
             print(
                 f"[bold red]{self.command_name} command failed with exit code {e.returncode}.[/bold"
                 " red]"
