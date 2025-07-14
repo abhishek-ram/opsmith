@@ -10,6 +10,7 @@ from opsmith.cloud_providers.base import (
     BaseCloudProvider,
     BaseCloudProviderDetail,
     CloudCredentialsError,
+    CpuArchitectureEnum,
     GCPCloudDetail,
 )
 
@@ -70,7 +71,9 @@ class GCPProvider(BaseCloudProvider):
 
         return sorted(regions)
 
-    def get_instance_type(self, cpu: int, ram_gb: int, region: str) -> str:
+    def get_instance_type(
+        self, cpu: int, ram_gb: int, region: str
+    ) -> tuple[str, CpuArchitectureEnum]:
         """
         Retrieves an appropriate instance type for the given resource requirements using the GCP API.
         """
@@ -90,15 +93,20 @@ class GCPProvider(BaseCloudProvider):
                 continue
 
             # Filter for general-purpose, newer generation instance families
-            if mtype.name.startswith(("e2-", "n2-", "n2d-", "t2d-")):
-                if mtype.guest_cpus >= cpu and mtype.memory_mb >= ram_mb:
-                    eligible_machines.append(
-                        {
-                            "name": mtype.name,
-                            "cpu": mtype.guest_cpus,
-                            "ram_mb": mtype.memory_mb,
-                        }
-                    )
+            arch = CpuArchitectureEnum.X86_64
+            # Adding arm64 (t2a) support to be consistent with AWS provider
+            if mtype.name.startswith(("t2a-", "c4a-")):
+                arch = CpuArchitectureEnum.ARM64
+
+            if mtype.guest_cpus >= cpu and mtype.memory_mb >= ram_mb:
+                eligible_machines.append(
+                    {
+                        "name": mtype.name,
+                        "cpu": mtype.guest_cpus,
+                        "ram_mb": mtype.memory_mb,
+                        "arch": arch,
+                    }
+                )
 
         if not eligible_machines:
             raise ValueError(
@@ -109,7 +117,8 @@ class GCPProvider(BaseCloudProvider):
         # Sort by vCPU, then RAM to find the smallest/cheapest instance
         eligible_machines.sort(key=lambda x: (x["cpu"], x["ram_mb"]))
 
-        return eligible_machines[0]["name"]
+        selected_machine = eligible_machines[0]
+        return selected_machine["name"], selected_machine["arch"]
 
     @classmethod
     def get_account_details(cls) -> BaseCloudProviderDetail:

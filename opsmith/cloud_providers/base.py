@@ -1,9 +1,17 @@
 import abc
+from enum import Enum
 from importlib.metadata import entry_points
 from typing import Dict, List, Literal, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field, TypeAdapter
 from rich import print
+
+
+class CpuArchitectureEnum(str, Enum):
+    """Enum for CPU architectures."""
+
+    ARM64 = "arm64"
+    X86_64 = "x86_64"
 
 
 class BaseCloudProviderDetail(BaseModel):
@@ -121,9 +129,12 @@ class BaseCloudProvider(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_instance_type(self, cpu: int, ram_gb: int, region: str) -> str:
+    def get_instance_type(
+        self, cpu: int, ram_gb: int, region: str
+    ) -> tuple[str, "CpuArchitectureEnum"]:
         """
-        Retrieves an appropriate instance type for the given resource requirements.
+        Retrieves an appropriate instance type and its architecture for the given
+        resource requirements.
         """
         raise NotImplementedError
 

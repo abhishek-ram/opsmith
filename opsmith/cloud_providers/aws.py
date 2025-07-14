@@ -9,6 +9,7 @@ from opsmith.cloud_providers.base import (
     BaseCloudProvider,
     BaseCloudProviderDetail,
     CloudCredentialsError,
+    CpuArchitectureEnum,
 )
 
 
@@ -52,7 +53,9 @@ class AWSProvider(BaseCloudProvider):
 
         return sorted(regions)
 
-    def get_instance_type(self, cpu: int, ram_gb: int, region: str) -> str:
+    def get_instance_type(
+        self, cpu: int, ram_gb: int, region: str
+    ) -> tuple[str, CpuArchitectureEnum]:
         """
         Retrieves an appropriate instance type for the given resource requirements using heuristics.
         """
@@ -79,9 +82,17 @@ class AWSProvider(BaseCloudProvider):
                     and "DefaultVCpus" in itype["VCpuInfo"]
                     and "MemoryInfo" in itype
                     and "SizeInMiB" in itype["MemoryInfo"]
+                    and "ProcessorInfo" in itype
+                    and "SupportedArchitectures" in itype["ProcessorInfo"]
+                    and itype["ProcessorInfo"]["SupportedArchitectures"]
                 ):
                     instance_vcpu = itype["VCpuInfo"]["DefaultVCpus"]
                     instance_mem_mb = itype["MemoryInfo"]["SizeInMiB"]
+                    instance_arch_str = itype["ProcessorInfo"]["SupportedArchitectures"][0]
+                    try:
+                        instance_arch = CpuArchitectureEnum(instance_arch_str)
+                    except ValueError:
+                        continue
 
                     if instance_vcpu >= cpu and instance_mem_mb >= ram_mb:
                         eligible_instances.append(
@@ -89,6 +100,7 @@ class AWSProvider(BaseCloudProvider):
                                 "name": itype["InstanceType"],
                                 "cpu": instance_vcpu,
                                 "ram_mb": instance_mem_mb,
+                                "arch": instance_arch,
                             }
                         )
 
@@ -105,7 +117,8 @@ class AWSProvider(BaseCloudProvider):
             )
         )
 
-        return eligible_instances[0]["name"]
+        selected_instance = eligible_instances[0]
+        return selected_instance["name"], selected_instance["arch"]
 
     @classmethod
     def get_account_details(cls) -> BaseCloudProviderDetail:

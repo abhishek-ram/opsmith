@@ -340,10 +340,13 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
 
         with WaitingSpinner(text="Selecting instance type", delay=0.1):
-            instance_type = cloud_provider.get_instance_type(
+            instance_type, instance_arch = cloud_provider.get_instance_type(
                 machine_reqs.cpu, machine_reqs.ram_gb, environment.region
             )
-            print(f"[bold green]Selected instance type: {instance_type}[/bold green]")
+            print(
+                f"[bold green]Selected instance type: {instance_type} ({instance_arch.value})[/bold"
+                " green]"
+            )
 
         print("\n[bold blue]Creating new virtual machine for monolithic deployment...[/bold blue]")
         instance_public_ip, ansible_user = self._create_virtual_machine(
