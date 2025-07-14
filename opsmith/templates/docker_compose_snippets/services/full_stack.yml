@@ -1,5 +1,8 @@
 service:
   image: "{image_name}"
   restart: always
-  ports:
-    - "{port}:{port}"
+  labels:
+    - "traefik.enable=true"
+    - "traefik.http.routers.python_backend_api.rule=PathPrefix(`/`)"
+    - "traefik.http.routers.python_backend_api.entrypoints=web"
+    - "traefik.http.services.python_backend_api.loadbalancer.server.port={port}"

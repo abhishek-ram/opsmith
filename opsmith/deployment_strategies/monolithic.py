@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from rich import print
 
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
+from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
 from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import (
@@ -291,6 +292,18 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         environment: DeploymentEnvironment,
     ):
         """Sets up the infrastructure for the deployment."""
+        public_services_count = sum(
+            1
+            for service in deployment_config.services
+            if service.service_type in [ServiceTypeEnum.BACKEND_API, ServiceTypeEnum.FULL_STACK]
+        )
+
+        if public_services_count > 1:
+            raise MonolithicDeploymentError(
+                "Monolithic deployment strategy supports only one public-facing service"
+                " (BACKEND_API or FULL_STACK)."
+            )
+
         print(
             f"\n[bold blue]Setting up container registry for region '{environment.region}'...[/bold"
             " blue]"
