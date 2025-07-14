@@ -1,16 +1,21 @@
-from typing import Type
+from typing import Literal, Type
 
 import boto3
 import botocore.session
 from botocore.exceptions import ClientError, NoCredentialsError
+from pydantic import Field
 
 from opsmith.cloud_providers.base import (
-    AWSCloudDetail,
     BaseCloudProvider,
     BaseCloudProviderDetail,
     CloudCredentialsError,
     CpuArchitectureEnum,
 )
+
+
+class AWSCloudDetail(BaseCloudProviderDetail):
+    name: Literal["AWS"] = Field(default="AWS", description="Provider name, 'AWS'")
+    account_id: str = Field(..., description="AWS Account ID.")
 
 
 class AWSProvider(BaseCloudProvider):
@@ -121,7 +126,7 @@ class AWSProvider(BaseCloudProvider):
         return selected_instance["name"], selected_instance["arch"]
 
     @classmethod
-    def get_account_details(cls) -> BaseCloudProviderDetail:
+    def get_account_details(cls) -> AWSCloudDetail:
         """
         Retrieves structured AWS account details.
         """

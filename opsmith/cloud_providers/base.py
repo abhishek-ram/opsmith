@@ -1,7 +1,7 @@
 import abc
 from enum import Enum
 from importlib.metadata import entry_points
-from typing import Dict, List, Literal, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field, TypeAdapter
 from rich import print
@@ -75,16 +75,6 @@ class CloudProviderRegistry:
                     "[yellow]Warning: Failed to load cloud provider from entry point"
                     f" '{entry_point.name}': {e}[/yellow]"
                 )
-
-
-class AWSCloudDetail(BaseCloudProviderDetail):
-    name: Literal["AWS"] = Field(default="AWS", description="Provider name, 'AWS'")
-    account_id: str = Field(..., description="AWS Account ID.")
-
-
-class GCPCloudDetail(BaseCloudProviderDetail):
-    name: Literal["GCP"] = Field(default="GCP", description="Provider name, 'GCP'")
-    project_id: str = Field(..., description="GCP Project ID.")
 
 
 class CloudCredentialsError(Exception):

@@ -1,18 +1,23 @@
-from typing import Type
+from typing import Literal, Type
 
 import google.auth
 import inquirer
 from google.auth.credentials import Credentials
 from google.auth.exceptions import DefaultCredentialsError
 from google.cloud import compute_v1
+from pydantic import Field
 
 from opsmith.cloud_providers.base import (
     BaseCloudProvider,
     BaseCloudProviderDetail,
     CloudCredentialsError,
     CpuArchitectureEnum,
-    GCPCloudDetail,
 )
+
+
+class GCPCloudDetail(BaseCloudProviderDetail):
+    name: Literal["GCP"] = Field(default="GCP", description="Provider name, 'GCP'")
+    project_id: str = Field(..., description="GCP Project ID.")
 
 
 class GCPProvider(BaseCloudProvider):
@@ -121,7 +126,7 @@ class GCPProvider(BaseCloudProvider):
         return selected_machine["name"], selected_machine["arch"]
 
     @classmethod
-    def get_account_details(cls) -> BaseCloudProviderDetail:
+    def get_account_details(cls) -> GCPCloudDetail:
         """
         Retrieves structured GCP account details by listing available projects
         and prompting the user for selection.
