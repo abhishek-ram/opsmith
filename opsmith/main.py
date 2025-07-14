@@ -11,11 +11,16 @@ from rich import print
 from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError
-from opsmith.deployer import Deployer, DeploymentConfig  # Import the new Deployer class
+from opsmith.deployer import Deployer  # Import the new Deployer class
 from opsmith.deployment_strategies import DEPLOYMENT_STRATEGY_REGISTRY
 from opsmith.repo_map import RepoMap
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import DeploymentEnvironment, InfrastructureDependency, ServiceInfo
+from opsmith.types import (
+    DeploymentConfig,
+    DeploymentEnvironment,
+    InfrastructureDependency,
+    ServiceInfo,
+)
 from opsmith.utils import build_logo, get_missing_external_dependencies
 
 app = typer.Typer()
@@ -191,7 +196,7 @@ def setup(ctx: typer.Context):
     Identifies services, their languages, types, and frameworks.
     """
     deployer = ctx.obj["deployer"]
-    deployment_config = deployer.get_deployment_config()
+    deployment_config = DeploymentConfig.load(ctx.obj["src_dir"])
 
     current_provider_name = None
     services = []
@@ -334,7 +339,7 @@ def setup(ctx: typer.Context):
         environments=environments,
         infra_deps=infra_deps,
     )
-    deployer.save_deployment_config(final_deployment_config)
+    final_deployment_config.save(ctx.obj["src_dir"])
 
     if is_update:
         print("\n[bold green]Deployment configuration updated:[/bold green]")
@@ -347,7 +352,7 @@ def setup(ctx: typer.Context):
 def deploy(ctx: typer.Context):
     """Deploy the application to a specified environment."""
     deployer = ctx.obj["deployer"]
-    deployment_config = deployer.get_deployment_config()
+    deployment_config = DeploymentConfig.load(ctx.obj["src_dir"])
     if not deployment_config:
         print(
             "[bold red]No deployment configuration found. Please run 'opsmith setup' first.[/bold"
@@ -438,7 +443,7 @@ def deploy(ctx: typer.Context):
         )
         deployment_strategy.setup_infra(deployment_config, new_env)
 
-        deployer.save_deployment_config(deployment_config)
+        deployment_config.save(ctx.obj["src_dir"])
         print(
             f"\n[bold green]New environment '{selected_env_name}' in region '{selected_region}'"
             f" with strategy '{selected_strategy}' created and saved.[/bold green]"

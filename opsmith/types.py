@@ -1,10 +1,14 @@
 from enum import Enum
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Type
 
+import yaml
 from pydantic import BaseModel, Field
+from rich import print
 
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import BaseCloudProvider
+from opsmith.settings import settings
 
 
 class ServiceTypeEnum(str, Enum):
@@ -193,3 +197,29 @@ class DeploymentConfig(ServiceList):
                 if env_var.default_value:
                     env_var_defaults[env_var.key] = env_var.default_value
         return env_var_defaults
+
+    @classmethod
+    def load(cls: Type["DeploymentConfig"], src_dir: str) -> Optional["DeploymentConfig"]:
+        """Loads the deployment configuration from a YAML file."""
+        deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
+        config_file_path = deployments_path / settings.config_filename
+
+        if not config_file_path.exists():
+            return None
+
+        with open(config_file_path, "r") as f:
+            config_data = yaml.safe_load(f)
+
+        if config_data:
+            return cls(**config_data)
+        else:
+            return None
+
+    def save(self, src_dir: str):
+        """Saves the deployment configuration to a YAML file."""
+        deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
+        config_file_path = deployments_path / settings.config_filename
+        deployments_path.mkdir(parents=True, exist_ok=True)
+        with open(config_file_path, "w") as f:
+            yaml.dump(self.model_dump(mode="json"), f, indent=2)
+        print(f"\n[bold blue]Deployment configuration saved to: {config_file_path}[/bold blue]")

@@ -15,13 +15,7 @@ from opsmith.prompts import (
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import (
-    DeploymentConfig,
-    DockerfileContent,
-    ServiceInfo,
-    ServiceList,
-    ServiceTypeEnum,
-)
+from opsmith.types import DockerfileContent, ServiceInfo, ServiceList, ServiceTypeEnum
 
 MAX_DOCKERFILE_GENERATE_ATTEMPTS = 5
 
@@ -35,8 +29,6 @@ class Deployer:
         instrument: bool = False,
     ):
         self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
-        self.config_file_name = "config.yml"
-        self.config_file_path = self.deployments_path / self.config_file_name
         self.agent_deps = AgentDeps(src_dir=Path(src_dir))
         self.agent = build_agent(model_config=model_config, instrument=instrument)
         self.repo_map = RepoMap(
@@ -44,28 +36,6 @@ class Deployer:
             verbose=verbose,
         )
         self.verbose = verbose
-
-    def save_deployment_config(self, deployment_config: DeploymentConfig):
-        """Saves the deployment configuration to a YAML file."""
-        self.deployments_path.mkdir(parents=True, exist_ok=True)
-        with open(self.config_file_path, "w") as f:
-            yaml.dump(deployment_config.model_dump(mode="json"), f, indent=2)
-        print(
-            f"\n[bold blue]Deployment configuration saved to: {self.config_file_path}[/bold blue]"
-        )
-
-    def get_deployment_config(self) -> Optional[DeploymentConfig]:
-        """Loads the deployment configuration from a YAML file."""
-        if not self.config_file_path.exists():
-            return None
-
-        with open(self.config_file_path, "r") as f:
-            config_data = yaml.safe_load(f)
-
-        if config_data:
-            return DeploymentConfig(**config_data)
-        else:
-            return None
 
     def generate_dockerfile(self, service: ServiceInfo):
         """Generates Dockerfiles for each service in the deployment configuration."""
