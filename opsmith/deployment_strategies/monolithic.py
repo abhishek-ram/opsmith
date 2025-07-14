@@ -21,13 +21,15 @@ from opsmith.prompts import (
     MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE,
 )
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import (
-    DeploymentConfig,
-    DeploymentEnvironment,
-    MachineRequirements,
-    ServiceTypeEnum,
-)
+from opsmith.types import DeploymentConfig, DeploymentEnvironment, ServiceTypeEnum
 from opsmith.utils import slugify
+
+
+class MachineRequirements(BaseModel):
+    """Describes the machine requirements for a monolithic deployment."""
+
+    cpu: int = Field(..., description="The number of virtual CPU cores required.")
+    ram_gb: int = Field(..., description="The amount of RAM in gigabytes required.")
 
 
 class DockerComposeLogValidation(BaseModel):

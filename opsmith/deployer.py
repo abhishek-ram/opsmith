@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from pydantic import BaseModel, Field
 from rich import print
 
 from opsmith.agent import AgentDeps, ModelConfig, build_agent
@@ -15,9 +16,29 @@ from opsmith.prompts import (
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import DockerfileContent, ServiceInfo, ServiceList, ServiceTypeEnum
+from opsmith.types import ServiceInfo, ServiceList, ServiceTypeEnum
 
 MAX_DOCKERFILE_GENERATE_ATTEMPTS = 5
+
+
+class DockerfileContent(BaseModel):
+    """Describes the dockerfile response from the agent, including the generated Dockerfile content and reasoning for the selection."""
+
+    content: str = Field(
+        ...,
+        description="The final generated Dockerfile content.",
+    )
+    reason: Optional[str] = Field(
+        None, description="The reasoning for the selection of the final Dockerfile content."
+    )
+    is_final: bool = Field(
+        False,
+        description=(
+            "Set this to true if you believe the Dockerfile is correct and complete, and any"
+            " further validation errors are due to runtime configuration (like missing env vars)"
+            " that cannot be fixed in the Dockerfile."
+        ),
+    )
 
 
 class Deployer:
