@@ -6,9 +6,10 @@ from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field
+from pydantic_ai import Agent
 from rich import print
 
-from opsmith.agent import AgentDeps, ModelConfig, build_agent
+from opsmith.agent import AgentDeps
 from opsmith.prompts import (
     DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
     REPO_ANALYSIS_PROMPT_TEMPLATE,
@@ -41,22 +42,50 @@ class DockerfileContent(BaseModel):
     )
 
 
-class Deployer:
+class ServiceDetector:
     def __init__(
         self,
         src_dir: str,
-        model_config: ModelConfig,
+        agent: Agent,
         verbose: bool = False,
-        instrument: bool = False,
     ):
         self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
         self.agent_deps = AgentDeps(src_dir=Path(src_dir))
-        self.agent = build_agent(model_config=model_config, instrument=instrument)
+        self.agent = agent
         self.repo_map = RepoMap(
             src_dir=src_dir,
             verbose=verbose,
         )
         self.verbose = verbose
+
+    def detect_services(self, existing_config: Optional[ServiceList] = None) -> ServiceList:
+        """
+        Scans the repository to determine the services to be deployed, using the AI agent.
+
+        Generates a repository map, then uses an AI agent with a file reading tool
+        to identify services and their characteristics.
+
+        Returns:
+            A ServiceList object detailing the services to be deployed.
+        """
+        repo_map_str = self.repo_map.get_repo_map()
+        if self.verbose:
+            print("Repo map generated:")
+
+        if existing_config:
+            existing_config_yaml = yaml.dump(existing_config.model_dump(mode="json"), indent=2)
+        else:
+            existing_config_yaml = "N/A"
+
+        prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(
+            repo_map_str=repo_map_str, existing_config_yaml=existing_config_yaml
+        )
+
+        print("Calling AI agent to analyse the repo and determine the services...")
+        with WaitingSpinner(text="Waiting for the LLM", delay=0.1):
+            run_result = self.agent.run_sync(prompt, output_type=ServiceList, deps=self.agent_deps)
+
+        return run_result.output
 
     def generate_dockerfile(self, service: ServiceInfo):
         """Generates Dockerfiles for each service in the deployment configuration."""
@@ -236,32 +265,3 @@ class Deployer:
                     f" {cleanup_image_process.stderr.strip()}"
                 )
         return None
-
-    def detect_services(self, existing_config: Optional[ServiceList] = None) -> ServiceList:
-        """
-        Scans the repository to determine the services to be deployed, using the AI agent.
-
-        Generates a repository map, then uses an AI agent with a file reading tool
-        to identify services and their characteristics.
-
-        Returns:
-            A ServiceList object detailing the services to be deployed.
-        """
-        repo_map_str = self.repo_map.get_repo_map()
-        if self.verbose:
-            print("Repo map generated:")
-
-        if existing_config:
-            existing_config_yaml = yaml.dump(existing_config.model_dump(mode="json"), indent=2)
-        else:
-            existing_config_yaml = "N/A"
-
-        prompt = REPO_ANALYSIS_PROMPT_TEMPLATE.format(
-            repo_map_str=repo_map_str, existing_config_yaml=existing_config_yaml
-        )
-
-        print("Calling AI agent to analyse the repo and determine the services...")
-        with WaitingSpinner(text="Waiting for the LLM", delay=0.1):
-            run_result = self.agent.run_sync(prompt, output_type=ServiceList, deps=self.agent_deps)
-
-        return run_result.output

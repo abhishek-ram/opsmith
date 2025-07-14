@@ -8,12 +8,12 @@ import yaml
 from pydantic import ValidationError
 from rich import print
 
-from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig
+from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig, build_agent
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError
-from opsmith.deployer import Deployer  # Import the new Deployer class
 from opsmith.deployment_strategies import DEPLOYMENT_STRATEGY_REGISTRY
 from opsmith.repo_map import RepoMap
+from opsmith.service_detector import ServiceDetector
 from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
@@ -140,12 +140,7 @@ def main(
 
     ctx.obj = {
         "src_dir": src_dir or os.getcwd(),
-        "deployer": Deployer(
-            src_dir=src_dir or os.getcwd(),
-            model_config=model,
-            verbose=verbose,
-            instrument=bool(logfire_token),
-        ),
+        "agent": build_agent(model_config=model, instrument=bool(logfire_token)),
     }
 
     _check_external_dependencies()
@@ -195,7 +190,7 @@ def setup(ctx: typer.Context):
     Setup the deployment configuration for the repository.
     Identifies services, their languages, types, and frameworks.
     """
-    deployer = ctx.obj["deployer"]
+    detector = ServiceDetector(src_dir=ctx.obj["src_dir"], agent=ctx.obj["agent"])
     deployment_config = DeploymentConfig.load(ctx.obj["src_dir"])
 
     current_provider_name = None
@@ -278,7 +273,7 @@ def setup(ctx: typer.Context):
 
     if scan_services:
         print("Scanning your codebase now to detect services, frameworks, and languages...")
-        service_list_obj = deployer.detect_services(
+        service_list_obj = detector.detect_services(
             existing_config=deployment_config if is_update else None
         )
 
@@ -307,7 +302,7 @@ def setup(ctx: typer.Context):
             confirmed_services.append(confirmed_service)
 
             print("\n[bold blue]Generating Dockerfile for the updated service...[/bold blue]")
-            deployer.generate_dockerfile(service=confirmed_service)
+            detector.generate_dockerfile(service=confirmed_service)
 
         services = confirmed_services
 
@@ -351,7 +346,6 @@ def setup(ctx: typer.Context):
 @app.command()
 def deploy(ctx: typer.Context):
     """Deploy the application to a specified environment."""
-    deployer = ctx.obj["deployer"]
     deployment_config = DeploymentConfig.load(ctx.obj["src_dir"])
     if not deployment_config:
         print(
@@ -438,7 +432,7 @@ def deploy(ctx: typer.Context):
         deployment_config.environments.append(new_env)
 
         deployment_strategy = DEPLOYMENT_STRATEGY_REGISTRY.get_strategy_class(selected_strategy)(
-            deployer.agent,
+            ctx.obj["agent"],
             ctx.parent.params["src_dir"],
         )
         deployment_strategy.setup_infra(deployment_config, new_env)
@@ -452,7 +446,7 @@ def deploy(ctx: typer.Context):
 
     selected_env = deployment_config.get_environment(selected_env_name)
     deployment_strategy = DEPLOYMENT_STRATEGY_REGISTRY.get_strategy_class(selected_env.strategy)(
-        deployer.agent,
+        ctx.obj["agent"],
         ctx.parent.params["src_dir"],
     )
     deployment_strategy.deploy(deployment_config, selected_env)
