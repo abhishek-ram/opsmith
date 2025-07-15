@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from rich import print
 
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
-from opsmith.cloud_providers.base import BaseCloudProvider
+from opsmith.cloud_providers.base import BaseCloudProvider, CpuArchitectureEnum
 from opsmith.settings import settings
 
 
@@ -196,3 +196,42 @@ class DeploymentConfig(ServiceList):
         with open(config_file_path, "w") as f:
             yaml.dump(self.model_dump(mode="json"), f, indent=2)
         print(f"\n[bold blue]Deployment configuration saved to: {config_file_path}[/bold blue]")
+
+
+class VirtualMachineConfig(BaseModel):
+    """Describes the configuration of a virtual machine for a monolithic deployment."""
+
+    instance_type: str = Field(..., description="The instance type of the virtual machine.")
+    architecture: CpuArchitectureEnum = Field(
+        ..., description="The CPU architecture of the virtual machine."
+    )
+    public_ip: str = Field(..., description="The public IP address of the virtual machine.")
+    user: str = Field(..., description="The SSH user for the virtual machine.")
+
+
+class MonolithicConfig(BaseModel):
+    """Configuration for a monolithic deployment environment."""
+
+    registry_url: str = Field(..., description="The URL of the container registry.")
+    virtual_machine: VirtualMachineConfig = Field(
+        ..., description="The configuration of the virtual machine."
+    )
+
+    @classmethod
+    def load(cls: Type["MonolithicConfig"], path: Path) -> Optional["MonolithicConfig"]:
+        """Loads the monolithic deployment configuration from a YAML file."""
+        if not path.exists():
+            return None
+
+        with open(path, "r", encoding="utf-8") as f:
+            config_data = yaml.safe_load(f)
+
+        if config_data:
+            return cls(**config_data)
+        return None
+
+    def save(self, path: Path):
+        """Saves the monolithic deployment configuration to a YAML file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(self.model_dump(mode="json", exclude_none=True), f, indent=2)

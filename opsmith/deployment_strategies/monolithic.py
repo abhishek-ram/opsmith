@@ -14,14 +14,19 @@ from rich import print
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
 from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
-from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import (
     DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE,
     DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE,
     MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE,
 )
 from opsmith.spinner import WaitingSpinner
-from opsmith.types import DeploymentConfig, DeploymentEnvironment, ServiceTypeEnum
+from opsmith.types import (
+    DeploymentConfig,
+    DeploymentEnvironment,
+    MonolithicConfig,
+    ServiceTypeEnum,
+    VirtualMachineConfig,
+)
 from opsmith.utils import slugify
 
 
@@ -355,30 +360,22 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             deployment_config, environment, instance_type, cloud_provider
         )
 
+        env_config_path = self._get_env_config_path(environment.name)
+        env_config = MonolithicConfig(
+            registry_url=registry_url,
+            virtual_machine=VirtualMachineConfig(
+                instance_type=instance_type,
+                architecture=instance_arch,
+                public_ip=instance_public_ip,
+                user=ansible_user,
+            ),
+        )
+        env_config.save(env_config_path)
+        print(f"Virtual machine details saved to {env_config_path}")
+
         self._generate_docker_compose(
             deployment_config, environment, images, instance_public_ip, ansible_user, registry_url
         )
-
-    def _load_virtual_machine_details(
-        self,
-        environment: DeploymentEnvironment,
-    ) -> Tuple[str, str]:
-        print("\n[bold blue]Loading monolithic infrastructure details...[/bold blue]")
-        infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
-        tf = TerraformProvisioner(working_dir=infra_path)
-        outputs = tf.get_output()
-
-        instance_public_ip = outputs.get("instance_public_ip")
-        if not instance_public_ip:
-            print("[bold red]Could not find 'instance_public_ip' in Terraform outputs.[/bold red]")
-            raise ValueError("Could not find 'instance_public_ip' in Terraform outputs.")
-
-        ansible_user = outputs.get("ansible_user")
-        if not ansible_user:
-            print("[bold red]Could not find 'ansible_user' in Terraform outputs.[/bold red]")
-            raise ValueError("Could not find 'ansible_user' in Terraform outputs.")
-
-        return instance_public_ip, ansible_user
 
     def _fetch_remote_deployment_files(
         self,
@@ -444,20 +441,20 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         environment: DeploymentEnvironment,
     ):
         """Deploys the application."""
-        instance_public_ip, ansible_user = self._load_virtual_machine_details(environment)
+        env_config_path = self._get_env_config_path(environment.name)
+        env_config = MonolithicConfig.load(env_config_path)
 
-        registry_url = self._setup_container_registry(deployment_config, environment)
-        self._build_and_push_images(deployment_config, environment, registry_url)
+        self._build_and_push_images(deployment_config, environment, env_config.registry_url)
 
         docker_compose_response = self._fetch_remote_deployment_files(
-            environment, instance_public_ip, ansible_user
+            environment, env_config.virtual_machine.public_ip, env_config.virtual_machine.user
         )
 
         self._deploy_docker_compose(
             deployment_config,
             environment,
-            instance_public_ip,
-            ansible_user,
-            registry_url,
+            env_config.virtual_machine.public_ip,
+            env_config.virtual_machine.user,
+            env_config.registry_url,
             docker_compose_response,
         )
