@@ -1,5 +1,4 @@
 import base64
-import json
 import subprocess
 from io import StringIO
 from pathlib import Path
@@ -113,30 +112,33 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         env_lines = [f'{key}="{value}"' for key, value in final_env_vars_for_file.items()]
         return "\n".join(env_lines), final_env_vars_for_file
 
+    def _get_deploy_docker_compose_path(
+        self, environment: DeploymentEnvironment
+    ) -> Tuple[Path, Path]:
+        deploy_compose_path = (
+            self.deployments_path / "environments" / environment.name / "docker_compose_deploy"
+        )
+        deploy_compose_path.mkdir(parents=True, exist_ok=True)
+        docker_compose_path = deploy_compose_path / "docker-compose.yml"
+
+        return deploy_compose_path, docker_compose_path
+
     def _deploy_docker_compose(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
-        instance_public_ip: str,
-        ansible_user: str,
-        registry_url: str,
-        docker_compose_response,
+        environment_config: MonolithicConfig,
+        env_file_content: str,
     ) -> str:
         """
         Deploys the docker-compose stack and returns container logs for validation.
         """
         print("\n[bold blue]Deploying docker-compose stack...[/bold blue]")
-        deploy_compose_path = (
-            self.deployments_path / "environments" / environment.name / "docker_compose_deploy"
+        ansible_user, instance_public_ip = (
+            environment_config.virtual_machine.user,
+            environment_config.virtual_machine.public_ip,
         )
-        docker_compose_path = deploy_compose_path / "docker-compose.yml"
-
-        env_file_content = docker_compose_response.env_file_content
-
-        docker_compose_content = docker_compose_response.content
-        with open(docker_compose_path, "w", encoding="utf-8") as f:
-            f.write(docker_compose_content)
-        print(f"[bold green]docker-compose.yml generated at {docker_compose_path}[/bold green]")
+        deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(environment)
 
         print("\n[bold blue]Attempting to deploy and get logs...[/bold blue]")
         ansible_runner = AnsibleProvisioner(working_dir=deploy_compose_path)
@@ -149,7 +151,7 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             "env_file_content": env_file_content,
             "dest_env_file": f"/home/{ansible_user}/app/.env",
             "remote_user": ansible_user,
-            "registry_host_url": registry_url.split("/")[0],
+            "registry_host_url": environment_config.registry_url.split("/")[0],
         }
 
         try:
@@ -171,9 +173,7 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
         images: Dict[str, str],
-        instance_public_ip: str,
-        ansible_user: str,
-        registry_url: str,
+        environment_config: MonolithicConfig,
     ):
         print("\n[bold blue]Generating docker-compose file...[/bold blue]")
 
@@ -250,20 +250,24 @@ class MonolithicStrategy(BaseDeploymentStrategy):
                     message_history=messages,
                 )
 
+            deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(
+                environment
+            )
+            with open(docker_compose_path, "w", encoding="utf-8") as f:
+                f.write(docker_compose_response.output.content)
+            print(f"[bold green]docker-compose.yml generated at {docker_compose_path}[/bold green]")
+
             confirmed_env_content, confirmed_env_vars = self._confirm_env_vars(
                 deployment_config,
                 docker_compose_response.output.env_file_content,
                 confirmed_env_vars,
             )
-            docker_compose_response.output.env_file_content = confirmed_env_content
 
             deployment_output = self._deploy_docker_compose(
                 deployment_config,
                 environment,
-                instance_public_ip,
-                ansible_user,
-                registry_url,
-                docker_compose_response.output,
+                environment_config,
+                confirmed_env_content,
             )
 
             with WaitingSpinner("Validating deployment logs with LLM...", delay=0.1):
@@ -373,67 +377,7 @@ class MonolithicStrategy(BaseDeploymentStrategy):
         env_config.save(env_config_path)
         print(f"Virtual machine details saved to {env_config_path}")
 
-        self._generate_docker_compose(
-            deployment_config, environment, images, instance_public_ip, ansible_user, registry_url
-        )
-
-    def _fetch_remote_deployment_files(
-        self,
-        environment: DeploymentEnvironment,
-        instance_public_ip: str,
-        ansible_user: str,
-    ) -> DockerComposeContent:
-        print("\n[bold blue]Fetching current deployment files from server...[/bold blue]")
-        fetch_files_path = (
-            self.deployments_path / "environments" / environment.name / "fetch_remote_files"
-        )
-
-        ansible_runner = AnsibleProvisioner(working_dir=fetch_files_path)
-        # We use 'common' as provider, since fetching is cloud-agnostic
-        ansible_runner.copy_template("fetch_remote_files", "common")
-
-        docker_compose_path = f"/home/{ansible_user}/app/docker-compose.yml"
-        env_file_path = f"/home/{ansible_user}/app/.env"
-        extra_vars = {
-            "remote_files": [docker_compose_path, env_file_path],
-        }
-
-        try:
-            outputs = ansible_runner.run_playbook(
-                "main.yml",
-                extra_vars=extra_vars,
-                inventory=instance_public_ip,
-                user=ansible_user,
-            )
-
-            fetched_files_b64 = outputs.get("fetched_files", "")
-            if not fetched_files_b64:
-                print(
-                    "[bold red]Could not fetch existing deployment files from server. Please run"
-                    " `opsmith setup` again on this environment.[/bold red]"
-                )
-                raise ValueError("Failed to fetch deployment files.")
-
-            fetched_files_json = base64.b64decode(fetched_files_b64.encode("ascii")).decode("utf-8")
-            fetched_files = json.loads(fetched_files_json)
-
-            compose_content_b64 = fetched_files.get(docker_compose_path)
-            env_content_b64 = fetched_files.get(env_file_path)
-
-            if not compose_content_b64 or not env_content_b64:
-                print(
-                    "[bold red]Could not fetch existing deployment files from server. Please run"
-                    " `opsmith setup` again on this environment.[/bold red]"
-                )
-                raise ValueError("Failed to fetch deployment files.")
-
-            compose_content = base64.b64decode(compose_content_b64.encode("ascii")).decode("utf-8")
-            env_content = base64.b64decode(env_content_b64.encode("ascii")).decode("utf-8")
-
-            return DockerComposeContent(content=compose_content, env_file_content=env_content)
-        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-            print(f"[bold red]Failed to fetch remote deployment files: {e}[/bold red]")
-            raise
+        self._generate_docker_compose(deployment_config, environment, images, env_config)
 
     def deploy(
         self,
@@ -446,15 +390,17 @@ class MonolithicStrategy(BaseDeploymentStrategy):
 
         self._build_and_push_images(deployment_config, environment, env_config.registry_url)
 
-        docker_compose_response = self._fetch_remote_deployment_files(
-            environment, env_config.virtual_machine.public_ip, env_config.virtual_machine.user
+        env_file_path = f"/home/{env_config.virtual_machine.user}/app/.env"
+        fetched_files = self._fetch_remote_deployment_files(
+            environment,
+            env_config.virtual_machine.public_ip,
+            env_config.virtual_machine.user,
+            [env_file_path],
         )
 
         self._deploy_docker_compose(
             deployment_config,
             environment,
-            env_config.virtual_machine.public_ip,
-            env_config.virtual_machine.user,
-            env_config.registry_url,
-            docker_compose_response,
+            env_config,
+            fetched_files[0],
         )

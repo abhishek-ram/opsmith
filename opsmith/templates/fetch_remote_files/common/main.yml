@@ -10,9 +10,9 @@
       loop: "{{ remote_files }}"
       register: slurp_results
 
-    - name: Prepare file contents dictionary
+    - name: Prepare file contents list
       ansible.builtin.set_fact:
-        file_contents: "{{ file_contents | default({}) | combine({item.item: item.content}) }}"
+        file_contents: "{{ file_contents | default([]) + [item.content] }}"
       loop: "{{ slurp_results.results }}"
       loop_control:
         label: "{{ item.item }}"

@@ -1,4 +1,6 @@
 import abc
+import base64
+import json
 import os
 import platform
 import subprocess
@@ -359,6 +361,48 @@ class BaseDeploymentStrategy(abc.ABC):
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             print(f"[bold red]Failed to set up monolithic infrastructure: {e}[/bold red]")
             raise
+
+    def _fetch_remote_deployment_files(
+        self,
+        environment: DeploymentEnvironment,
+        instance_public_ip: str,
+        ansible_user: str,
+        remote_files: List[str],
+    ) -> List[str]:
+        print("\n[bold blue]Fetching current deployment files from server...[/bold blue]")
+        fetch_files_path = (
+            self.deployments_path / "environments" / environment.name / "fetch_remote_files"
+        )
+
+        ansible_runner = AnsibleProvisioner(working_dir=fetch_files_path)
+        # We use 'common' as provider, since fetching is cloud-agnostic
+        ansible_runner.copy_template("fetch_remote_files", "common")
+        extra_vars = {
+            "remote_files": remote_files,
+        }
+
+        outputs = ansible_runner.run_playbook(
+            "main.yml",
+            extra_vars=extra_vars,
+            inventory=instance_public_ip,
+            user=ansible_user,
+        )
+
+        fetched_files_b64 = outputs.get("fetched_files", "")
+        if not fetched_files_b64:
+            print(
+                "[bold red]Could not fetch existing deployment files from server. Please run"
+                " `opsmith setup` again on this environment.[/bold red]"
+            )
+            raise ValueError("Failed to fetch deployment files.")
+
+        fetched_files_json = base64.b64decode(fetched_files_b64.encode("ascii")).decode("utf-8")
+        fetched_files = json.loads(fetched_files_json)
+
+        return [
+            base64.b64decode(file_content.encode("ascii")).decode("utf-8")
+            for file_content in fetched_files
+        ]
 
     @abc.abstractmethod
     def setup_infra(
