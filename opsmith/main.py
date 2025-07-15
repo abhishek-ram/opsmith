@@ -432,12 +432,13 @@ def deploy(ctx: typer.Context):
         inquirer.List(
             "action",
             message=f"What would you like to do with the '{selected_env_name}' environment?",
-            choices=["release", "delete"],
+            choices=["release", "delete", "exit"],
             default="release",
         )
     ]
     action_answers = inquirer.prompt(action_questions)
-    if not action_answers:
+    if not action_answers or action_answers.get("action") == "exit":
+        print("Exiting deploy.")
         raise typer.Exit()
 
     selected_action = action_answers["action"]
