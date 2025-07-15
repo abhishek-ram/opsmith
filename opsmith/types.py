@@ -114,6 +114,10 @@ class ServiceInfo(BaseModel):
         description="A list of environment variable configurations required by the service.",
     )
 
+    @property
+    def name_slug(self) -> str:
+        return f"{self.language}_{self.service_type.value}".replace(" ", "_").lower()
+
 
 class ServiceList(BaseModel):
     """List of services discovered within the repository."""

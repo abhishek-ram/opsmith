@@ -101,11 +101,8 @@ class ServiceDetector:
             )
             return
 
-        service_name_slug = f"{service.language}_{service.service_type.value}".replace(
-            " ", "_"
-        ).lower()
         service_dir_name = "images"
-        service_dir_path = self.deployments_path / service_dir_name / service_name_slug
+        service_dir_path = self.deployments_path / service_dir_name / service.name_slug
         service_dir_path.mkdir(parents=True, exist_ok=True)
         dockerfile_path_abs = service_dir_path / "Dockerfile"
         print(

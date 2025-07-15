@@ -186,10 +186,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         services_info = {}
         service_snippets_list = []
         for service in deployment_config.services:
-            service_name_slug = f"{service.language}_{service.service_type.value}".replace(
-                " ", "_"
-            ).lower()
-            services_info[service_name_slug] = service.model_dump(mode="json")
+            services_info[service.name_slug] = service.model_dump(mode="json")
             service_type_slug = service.service_type.value.lower()
 
             if service.service_type not in [
@@ -205,12 +202,12 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 with open(snippet_path, "r", encoding="utf-8") as f:
                     content = f.read()
 
-                image_url = images.get(service_name_slug)
+                image_url = images.get(service.name_slug)
                 if not image_url:
                     continue
 
                 content = content.format(image_name=image_url, port=8000)
-                service_snippets_list.append(f"# {service_name_slug}\n{content}")
+                service_snippets_list.append(f"# {service.name_slug}\n{content}")
         service_snippets = "\n\n".join(service_snippets_list)
 
         infra_snippets_list = []
