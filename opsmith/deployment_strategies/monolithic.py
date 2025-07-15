@@ -63,7 +63,7 @@ class DockerComposeContent(BaseModel):
     )
 
 
-class MonolithicStrategy(BaseDeploymentStrategy):
+class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     """Monolithic deployment strategy."""
 
     @classmethod
@@ -297,12 +297,25 @@ class MonolithicStrategy(BaseDeploymentStrategy):
                 f" {max_attempts} attempts.[/bold red]"
             )
 
-    def setup_infra(
+    def deploy(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
     ):
-        """Sets up the infrastructure for the deployment."""
+        """
+        Creates a monolithic deployment environment using the provided deployment configuration and
+        environment details. This function includes steps for setting up a container registry,
+        building and pushing images, estimating resource requirements, selecting cloud provider
+        instance types, creating a virtual machine, and generating Docker Compose configurations
+        for deployment.
+
+        :param deployment_config: Configuration object containing details of services, infrastructure
+            dependencies, and other deployment settings.
+        :type deployment_config: DeploymentConfig
+        :param environment: Deployment environment details, including region and other configurations.
+        :type environment: DeploymentEnvironment
+        :return: None
+        """
         public_services_count = sum(
             1
             for service in deployment_config.services
@@ -379,7 +392,7 @@ class MonolithicStrategy(BaseDeploymentStrategy):
 
         self._generate_docker_compose(deployment_config, environment, images, env_config)
 
-    def deploy(
+    def release(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
@@ -403,4 +416,15 @@ class MonolithicStrategy(BaseDeploymentStrategy):
             environment,
             env_config,
             fetched_files[0],
+        )
+
+    def destroy(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+    ):
+        """Destroys the environment's infrastructure."""
+        print(
+            "[bold yellow]Destroy command is not yet implemented for Monolithic strategy.[/bold"
+            " yellow]"
         )

@@ -435,7 +435,7 @@ def deploy(ctx: typer.Context):
             ctx.obj["agent"],
             ctx.parent.params["src_dir"],
         )
-        deployment_strategy.setup_infra(deployment_config, new_env)
+        deployment_strategy.deploy(deployment_config, new_env)
 
         deployment_config.save(ctx.obj["src_dir"])
         print(
@@ -445,14 +445,32 @@ def deploy(ctx: typer.Context):
         return
 
     selected_env = deployment_config.get_environment(selected_env_name)
+
+    action_questions = [
+        inquirer.List(
+            "action",
+            message=f"What would you like to do with the '{selected_env_name}' environment?",
+            choices=["release", "destroy"],
+            default="release",
+        )
+    ]
+    action_answers = inquirer.prompt(action_questions)
+    if not action_answers:
+        raise typer.Exit()
+
+    selected_action = action_answers["action"]
+
     deployment_strategy = DEPLOYMENT_STRATEGY_REGISTRY.get_strategy_class(selected_env.strategy)(
         ctx.obj["agent"],
         ctx.parent.params["src_dir"],
     )
-    deployment_strategy.deploy(deployment_config, selected_env)
 
-    print(f"\nSelected environment: [bold cyan]{selected_env_name}[/bold cyan]")
-    # Future deployment logic will go here
+    if selected_action == "release":
+        deployment_strategy.release(deployment_config, selected_env)
+        print(f"\nDeployment to '{selected_env_name}' environment completed.")
+    elif selected_action == "destroy":
+        deployment_strategy.destroy(deployment_config, selected_env)
+        print(f"\nDestruction of '{selected_env_name}' environment completed.")
 
 
 @app.command()

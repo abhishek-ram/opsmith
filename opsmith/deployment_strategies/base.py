@@ -37,9 +37,11 @@ class DeploymentStrategyRegistry:
 
     def _load_builtin_strategies(self):
         """Load built-in strategies"""
-        from opsmith.deployment_strategies.monolithic import MonolithicStrategy
+        from opsmith.deployment_strategies.monolithic import (
+            MonolithicDeploymentStrategy,
+        )
 
-        for strategy_cls in [MonolithicStrategy]:
+        for strategy_cls in [MonolithicDeploymentStrategy]:
             self.register(strategy_cls)
 
     def _load_plugin_strategies(self):
@@ -405,7 +407,7 @@ class BaseDeploymentStrategy(abc.ABC):
         ]
 
     @abc.abstractmethod
-    def setup_infra(
+    def deploy(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
@@ -414,10 +416,19 @@ class BaseDeploymentStrategy(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def deploy(
+    def release(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
     ):
         """Deploys the application."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def destroy(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+    ):
+        """Destroys the environment's infrastructure."""
         raise NotImplementedError
