@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Annotated, Optional
 
 import inquirer
@@ -14,6 +15,7 @@ from opsmith.cloud_providers.base import CloudCredentialsError
 from opsmith.deployment_strategies import DEPLOYMENT_STRATEGY_REGISTRY
 from opsmith.repo_map import RepoMap
 from opsmith.service_detector import ServiceDetector
+from opsmith.settings import settings
 from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
@@ -21,7 +23,7 @@ from opsmith.types import (
     InfrastructureDependency,
     ServiceInfo,
 )
-from opsmith.utils import build_logo, get_missing_external_dependencies
+from opsmith.utils import build_logo, get_missing_external_dependencies, slugify
 
 app = typer.Typer()
 
@@ -138,11 +140,12 @@ def main(
     if logfire_token:
         logfire.configure(token=logfire_token, scrubbing=False)
 
+    src_dir = src_dir or os.getcwd()
     ctx.obj = {
-        "src_dir": src_dir or os.getcwd(),
+        "src_dir": src_dir,
+        "deployments_path": Path(src_dir).joinpath(settings.deployments_dir),
         "agent": build_agent(model_config=model, instrument=bool(logfire_token)),
     }
-
     _check_external_dependencies()
 
 
@@ -191,20 +194,11 @@ def setup(ctx: typer.Context):
     Identifies services, their languages, types, and frameworks.
     """
     detector = ServiceDetector(src_dir=ctx.obj["src_dir"], agent=ctx.obj["agent"])
-    deployment_config = DeploymentConfig.load(ctx.obj["src_dir"])
-
-    current_provider_name = None
-    services = []
-    infra_deps = []
+    deployment_config = DeploymentConfig.load(ctx.obj["deployments_path"])
     scan_services = False
-    is_update = bool(deployment_config)
-    app_name = None
-    environments = []
 
-    if is_update:
+    if deployment_config:
         print("\n[bold yellow]Existing deployment configuration found.[/bold yellow]")
-        print("\n[bold green]Current Deployment Configuration:[/bold green]")
-        print(yaml.dump(deployment_config.model_dump(mode="json")))
 
         update_actions = ["Re-scan services", "Exit"]
         questions = [
@@ -223,16 +217,10 @@ def setup(ctx: typer.Context):
         if answers.get("action") == "Re-scan services":
             scan_services = True
 
-        # Pre-fill with existing data
-        app_name = deployment_config.app_name
-        cloud_details = deployment_config.cloud_provider
-        services = deployment_config.services
-        environments = deployment_config.environments
-        infra_deps = deployment_config.infra_deps
     else:
         print("No existing deployment configuration found. Starting analysis...")
         app_name_questions = [
-            inquirer.Text("app_name", message="Enter the application name", default=app_name),
+            inquirer.Text("app_name", message="Enter the application name"),
         ]
         app_name_answers = inquirer.prompt(app_name_questions)
         if not app_name_answers or not app_name_answers.get("app_name"):
@@ -245,7 +233,6 @@ def setup(ctx: typer.Context):
                 "cloud_provider",
                 message="Select the cloud provider for deployment",
                 choices=CLOUD_PROVIDER_REGISTRY.choices,
-                default=current_provider_name,
             ),
         ]
         provider_answers = inquirer.prompt(provider_questions)
@@ -269,13 +256,17 @@ def setup(ctx: typer.Context):
                 f" fetching details: {e}. Aborting.[/bold red]"
             )
             raise typer.Exit(code=1)
+
+        deployment_config = DeploymentConfig(
+            app_name=app_name,
+            app_name_slug=slugify(app_name),
+            cloud_provider=cloud_details,
+        )
         scan_services = True
 
     if scan_services:
         print("Scanning your codebase now to detect services, frameworks, and languages...")
-        service_list_obj = detector.detect_services(
-            existing_config=deployment_config if is_update else None
-        )
+        service_list_obj = detector.detect_services(existing_config=deployment_config)
 
         confirmed_services = []
 
@@ -304,7 +295,7 @@ def setup(ctx: typer.Context):
             print("\n[bold blue]Generating Dockerfile for the updated service...[/bold blue]")
             detector.generate_dockerfile(service=confirmed_service)
 
-        services = confirmed_services
+        deployment_config.services = confirmed_services
 
         infra_deps = service_list_obj.infra_deps
         if infra_deps:
@@ -324,29 +315,20 @@ def setup(ctx: typer.Context):
             ]
             answers = inquirer.prompt(questions)
             confirmed_deps_data = yaml.safe_load(answers["config"])
-            infra_deps = [InfrastructureDependency(**data) for data in confirmed_deps_data]
+            deployment_config.infra_deps = [
+                InfrastructureDependency(**data) for data in confirmed_deps_data
+            ]
 
     # Create/Update and Save Configuration
-    final_deployment_config = DeploymentConfig(
-        app_name=app_name,
-        cloud_provider=cloud_details,
-        services=services,
-        environments=environments,
-        infra_deps=infra_deps,
-    )
-    final_deployment_config.save(ctx.obj["src_dir"])
+    deployment_config.save(ctx.obj["deployments_path"])
 
-    if is_update:
-        print("\n[bold green]Deployment configuration updated:[/bold green]")
-    else:
-        print("\n[bold green]Created Deployment Configuration:[/bold green]")
-    print(yaml.dump(final_deployment_config.model_dump(mode="json")))
+    print("\n[bold green]Deployment configuration updated at {}[/bold green]")
 
 
 @app.command()
 def deploy(ctx: typer.Context):
     """Deploy the application to a specified environment."""
-    deployment_config = DeploymentConfig.load(ctx.obj["src_dir"])
+    deployment_config = DeploymentConfig.load(ctx.obj["deployments_path"])
     if not deployment_config:
         print(
             "[bold red]No deployment configuration found. Please run 'opsmith setup' first.[/bold"
@@ -437,7 +419,7 @@ def deploy(ctx: typer.Context):
         )
         deployment_strategy.deploy(deployment_config, new_env)
 
-        deployment_config.save(ctx.obj["src_dir"])
+        deployment_config.save(ctx.obj["deployments_path"])
         print(
             f"\n[bold green]New environment '{selected_env_name}' in region '{selected_region}'"
             f" with strategy '{selected_strategy}' created and saved.[/bold green]"

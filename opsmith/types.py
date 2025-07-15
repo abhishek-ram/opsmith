@@ -119,7 +119,7 @@ class ServiceList(BaseModel):
     """List of services discovered within the repository."""
 
     services: List[ServiceInfo] = Field(
-        ..., description="A list of services identified in the repository."
+        default_factory=list, description="A list of services identified in the repository."
     )
     infra_deps: List[InfrastructureDependency] = Field(
         default_factory=list,
@@ -141,6 +141,7 @@ class DeploymentConfig(ServiceList):
     """Describes the deployment config for the repository, listing all services."""
 
     app_name: str = Field(..., description="The name of the application.")
+    app_name_slug: str = Field(..., description="The slugified name of the application.")
     cloud_provider: dict = Field(..., description="Cloud provider specific details.")
     environments: List[DeploymentEnvironment] = Field(
         default_factory=list, description="A list of deployment environments."
@@ -173,9 +174,8 @@ class DeploymentConfig(ServiceList):
         return env_var_defaults
 
     @classmethod
-    def load(cls: Type["DeploymentConfig"], src_dir: str) -> Optional["DeploymentConfig"]:
+    def load(cls: Type["DeploymentConfig"], deployments_path: Path) -> Optional["DeploymentConfig"]:
         """Loads the deployment configuration from a YAML file."""
-        deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
         config_file_path = deployments_path / settings.config_filename
 
         if not config_file_path.exists():
@@ -189,9 +189,8 @@ class DeploymentConfig(ServiceList):
         else:
             return None
 
-    def save(self, src_dir: str):
+    def save(self, deployments_path: Path):
         """Saves the deployment configuration to a YAML file."""
-        deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
         config_file_path = deployments_path / settings.config_filename
         deployments_path.mkdir(parents=True, exist_ok=True)
         with open(config_file_path, "w") as f:

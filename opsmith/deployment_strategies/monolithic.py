@@ -28,7 +28,6 @@ from opsmith.types import (
     ServiceTypeEnum,
     VirtualMachineConfig,
 )
-from opsmith.utils import slugify
 
 
 class MachineRequirements(BaseModel):
@@ -182,7 +181,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         template_dir = Path(__file__).parent.parent / "templates"
         base_compose_path = template_dir / "docker_compose_snippets" / "base.yml"
         with open(base_compose_path, "r", encoding="utf-8") as f:
-            base_compose = f.read().format(app_name=slugify(deployment_config.app_name))
+            base_compose = f.read().format(app_name=deployment_config.app_name_slug)
 
         services_info = {}
         service_snippets_list = []
@@ -221,7 +220,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 with open(snippet_path, "r", encoding="utf-8") as f:
                     content = f.read()
                     content = content.format(
-                        version=infra.version, app_name=slugify(deployment_config.app_name)
+                        version=infra.version, app_name=deployment_config.app_name_slug
                     )
                     infra_snippets_list.append(f"# {infra.provider}\n{content}")
         infra_snippets = "\n\n".join(infra_snippets_list)
@@ -447,7 +446,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             tf = TerraformProvisioner(working_dir=infra_path)
 
             variables = {
-                "app_name": slugify(deployment_config.app_name),
+                "app_name": deployment_config.app_name_slug,
                 "instance_type": env_config.virtual_machine.instance_type,
                 "region": environment.region,
                 "ssh_pub_key": self._get_ssh_public_key(),

@@ -107,7 +107,7 @@ class BaseDeploymentStrategy(abc.ABC):
         self, deployment_config: DeploymentConfig, environment: DeploymentEnvironment
     ) -> str:
         """Sets up a container registry for the given region."""
-        app_name = deployment_config.app_name
+        app_name = deployment_config.app_name_slug
         # Registry name should probably be unique per region for the app
         registry_name = slugify(f"{app_name}-{environment.region}")
 
@@ -315,7 +315,7 @@ class BaseDeploymentStrategy(abc.ABC):
         tf = TerraformProvisioner(working_dir=infra_path)
 
         variables = {
-            "app_name": slugify(deployment_config.app_name),
+            "app_name": deployment_config.app_name_slug,
             "instance_type": instance_type,
             "region": environment.region,
             "ssh_pub_key": self._get_ssh_public_key(),
