@@ -8,6 +8,7 @@ from rich import print
 
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import BaseCloudProvider, CpuArchitectureEnum
+from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.settings import settings
 
 
@@ -218,17 +219,15 @@ class MonolithicConfig(BaseModel):
     )
 
     @classmethod
-    def load(cls: Type["MonolithicConfig"], path: Path) -> Optional["MonolithicConfig"]:
+    def load(cls: Type["MonolithicConfig"], path: Path) -> "MonolithicConfig":
         """Loads the monolithic deployment configuration from a YAML file."""
         if not path.exists():
-            return None
+            raise MonolithicDeploymentError(f"Config file '{path}' does not exist.")
 
         with open(path, "r", encoding="utf-8") as f:
             config_data = yaml.safe_load(f)
 
-        if config_data:
-            return cls(**config_data)
-        return None
+        return cls(**config_data)
 
     def save(self, path: Path):
         """Saves the monolithic deployment configuration to a YAML file."""

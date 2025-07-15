@@ -97,6 +97,7 @@ class BaseDeploymentStrategy(abc.ABC):
     def __init__(self, agent: Agent, src_dir: Path):
         self.agent = agent
         self.agent_deps = AgentDeps(src_dir=Path(src_dir))
+        self.src_dir = src_dir
         self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
 
     def _get_env_config_path(self, environment_name: str) -> Path:

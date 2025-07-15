@@ -16,19 +16,38 @@ class TerraformProvisioner(BaseInfrastructureProvisioner):
             working_dir=working_dir, command_name="TerraformProvisioner", executable="terraform"
         )
 
+    @staticmethod
+    def _build_vars(
+        variables: Dict[str, str], env_vars: Optional[Dict[str, str]] = None
+    ) -> tuple[list, dict]:
+        vars_list = []
+        for key, value in variables.items():
+            vars_list.extend(["-var", f"{key}={value}"])
+
+        tf_env_vars = {}
+        for key, value in env_vars.items() or {}:
+            tf_env_vars[f"TF_VAR_{key}"] = str(value)
+
+        return vars_list, tf_env_vars
+
     def init_and_apply(self, variables: Dict[str, str], env_vars: Optional[Dict[str, str]] = None):
         """
         Initializes and applies the terraform configuration.
         """
         self._run_command(["terraform", "init", "-no-color"])
         command = ["terraform", "apply", "-auto-approve", "-no-color"]
-        for key, value in variables.items():
-            command.extend(["-var", f"{key}={value}"])
+        vars_list, tf_env_vars = self._build_vars(variables, env_vars)
+        command.extend(vars_list)
 
-        tf_env_vars = {}
-        for key, value in env_vars.items() or {}:
-            tf_env_vars[f"TF_VAR_{key}"] = str(value)
+        self._run_command(command, env=tf_env_vars)
 
+    def destroy(self, variables: Dict[str, str], env_vars: Optional[Dict[str, str]] = None):
+        """
+        Destroys the terraform-managed infrastructure.
+        """
+        command = ["terraform", "destroy", "-auto-approve", "-no-color"]
+        vars_list, tf_env_vars = self._build_vars(variables, env_vars)
+        command.extend(vars_list)
         self._run_command(command, env=tf_env_vars)
 
     def get_output(self) -> Dict[str, Any]:

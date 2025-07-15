@@ -1,4 +1,5 @@
 import base64
+import shutil
 import subprocess
 from io import StringIO
 from pathlib import Path
@@ -13,6 +14,7 @@ from rich import print
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
 from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
+from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import (
     DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE,
     DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE,
@@ -424,7 +426,53 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         environment: DeploymentEnvironment,
     ):
         """Destroys the environment's infrastructure."""
-        print(
-            "[bold yellow]Destroy command is not yet implemented for Monolithic strategy.[/bold"
-            " yellow]"
-        )
+        print("\n[bold blue]Destroying monolithic environment...[/bold blue]")
+
+        # Destroy virtual machine
+        cloud_provider = deployment_config.cloud_provider_instance
+        infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
+
+        if infra_path.exists():
+            env_config_path = self._get_env_config_path(environment.name)
+            env_config = MonolithicConfig.load(env_config_path)
+            if not env_config:
+                print(
+                    f"[bold red]Configuration for environment '{environment.name}' is missing or"
+                    " incomplete. Cannot proceed with destruction.[/bold red]"
+                )
+                raise MonolithicDeploymentError(
+                    f"Incomplete config for {environment.name}, cannot destroy."
+                )
+
+            tf = TerraformProvisioner(working_dir=infra_path)
+
+            variables = {
+                "app_name": slugify(deployment_config.app_name),
+                "instance_type": env_config.virtual_machine.instance_type,
+                "region": environment.region,
+                "ssh_pub_key": self._get_ssh_public_key(),
+            }
+            env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+            tf.destroy(variables, env_vars=env_vars)
+        else:
+            print(
+                "[bold yellow]No virtual machine infrastructure found for environment"
+                f" '{environment.name}'. Skipping VM destruction.[/bold yellow]"
+            )
+
+        # Clean up environment directory
+        env_dir_path = self.deployments_path / "environments" / environment.name
+        if env_dir_path.exists():
+            try:
+                shutil.rmtree(env_dir_path)
+                print(f"[bold green]Environment directory '{env_dir_path}' deleted.[/bold green]")
+            except OSError as e:
+                print(
+                    f"[bold red]Error deleting environment directory {env_dir_path}: {e}[/bold red]"
+                )
+
+        # Clean up the deployment config
+        deployment_config.environments = [
+            e for e in deployment_config.environments if e.name != environment.name
+        ]
+        deployment_config.save(self.deployments_path)

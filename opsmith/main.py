@@ -450,7 +450,7 @@ def deploy(ctx: typer.Context):
         inquirer.List(
             "action",
             message=f"What would you like to do with the '{selected_env_name}' environment?",
-            choices=["release", "destroy"],
+            choices=["release", "delete"],
             default="release",
         )
     ]
@@ -468,9 +468,22 @@ def deploy(ctx: typer.Context):
     if selected_action == "release":
         deployment_strategy.release(deployment_config, selected_env)
         print(f"\nDeployment to '{selected_env_name}' environment completed.")
-    elif selected_action == "destroy":
+    elif selected_action == "delete":
+        delete_confirmation_q = [
+            inquirer.Text(
+                "confirm",
+                message=(
+                    f"This will delete all infrastructure in the '{selected_env_name}'"
+                    " environment. This action cannot be undone. Please type 'DELETE' to confirm."
+                ),
+            )
+        ]
+        delete_confirmation_a = inquirer.prompt(delete_confirmation_q)
+        if not delete_confirmation_a or delete_confirmation_a.get("confirm") != "DELETE":
+            print("[bold yellow]Delete operation cancelled.[/bold yellow]")
+            raise typer.Exit()
+
         deployment_strategy.destroy(deployment_config, selected_env)
-        print(f"\nDestruction of '{selected_env_name}' environment completed.")
 
 
 @app.command()
