@@ -32,6 +32,7 @@
           dockerfile: "{{ dockerfile_name }}"
         source: build
         state: present
+        force_source: yes  # This forces a rebuild
       register: image_build_result
 
     - name: Push Docker image

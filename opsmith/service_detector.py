@@ -1,13 +1,15 @@
 import subprocess
 import tempfile
+import threading
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from rich import print
+from rich.markup import escape
 
 from opsmith.agent import AgentDeps
 from opsmith.prompts import (
@@ -168,6 +170,44 @@ class ServiceDetector:
             f" {MAX_DOCKERFILE_GENERATE_ATTEMPTS} attempts."
         )
 
+    @staticmethod
+    def _run_command_with_streaming_output(
+        command: List[str], timeout: int
+    ) -> tuple[int, str, bool]:
+        """
+        Runs a command and streams its output, returning the exit code, full output, and timeout status.
+        """
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+        )
+        output_lines = []
+        timed_out = False
+
+        def stream_reader():
+            for line in iter(process.stdout.readline, ""):
+                stripped_line = line.strip()
+                output_lines.append(stripped_line)
+                print(f"[grey50]{escape(stripped_line)}[/grey50]")
+
+        reader_thread = threading.Thread(target=stream_reader)
+        reader_thread.daemon = True
+        reader_thread.start()
+
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            timed_out = True
+
+        reader_thread.join(timeout=5)
+
+        output_str = "\n".join(output_lines)
+        return process.returncode, output_str, timed_out
+
     def _validate_dockerfile(self, dockerfile_content: str) -> Optional[str]:
         """
         Validates a Dockerfile by building and running it.
@@ -186,25 +226,20 @@ class ServiceDetector:
 
                 # Execute docker build command
                 print("[bold blue]Attempting to build the Dockerfile...[/bold blue]")
-                build_process = subprocess.run(
-                    [
-                        "docker",
-                        "build",
-                        "-f",
-                        str(temp_dockerfile),
-                        "-t",
-                        image_tag,
-                        str(repo_root),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                build_output_str = (
-                    f"Build Output (stdout):\n{build_process.stdout}\nBuild Output"
-                    f" (stderr):\n{build_process.stderr}"
+                build_command = [
+                    "docker",
+                    "build",
+                    "-f",
+                    str(temp_dockerfile),
+                    "-t",
+                    image_tag,
+                    str(repo_root),
+                ]
+                build_rc, build_output_str, _ = self._run_command_with_streaming_output(
+                    build_command, 30 * 60
                 )
 
-                if build_process.returncode != 0:
+                if build_rc != 0:
                     # Build failed
                     return (
                         "Dockerfile build failed. Please analyze the following output and revise"
@@ -212,25 +247,17 @@ class ServiceDetector:
                     )
 
             # Build successful, now try to run the image
-            # Using --rm to automatically remove the container when it exits.
             print("[bold blue]Build successful. Attempting to run the container...[/bold blue]")
-            run_process = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    image_tag,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,  # Timeout for the run command to prevent indefinite hangs
-            )
-            run_output_str = (
-                f"Run Output (stdout):\n{run_process.stdout}\nRun Output"
-                f" (stderr):\n{run_process.stderr}"
+            run_command = ["docker", "run", "--rm", image_tag]
+            run_rc, run_output_str, timed_out = self._run_command_with_streaming_output(
+                run_command, timeout=60
             )
 
-            if run_process.returncode != 0:
+            if timed_out:
+                print("[bold yellow]Container running for 60s, assuming success.[/bold yellow]")
+                return None  # Success for long-running services
+
+            if run_rc != 0:
                 # Run failed.
                 return (
                     "Dockerfile built successfully, but running the image failed. Please analyze"
@@ -239,15 +266,9 @@ class ServiceDetector:
                     " correct and the failure is due to runtime issues (e.g. missing environment"
                     " variables), then return the Dockerfile content again but set `is_final` to"
                     " true in the `DockerfileValidationResponse`.\n\nRun"
-                    f" Output:\n{run_output_str}\n\nOriginal Build Output"
+                    f" Output:\n{run_output_str}\n\nBuild Output"
                     f" was:\n{build_output_str}"
                 )
-        except subprocess.TimeoutExpired:
-            print(
-                "[bold yellow]Running the Docker image timed out. This could mean the service is"
-                " running. Considering Dockerfile as valid.[/bold yellow]"
-            )
-            return None  # Success for our purpose
         finally:
             # Clean up image
             cleanup_image_process = subprocess.run(

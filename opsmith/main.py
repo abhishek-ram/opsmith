@@ -322,8 +322,6 @@ def setup(ctx: typer.Context):
     # Create/Update and Save Configuration
     deployment_config.save(ctx.obj["deployments_path"])
 
-    print("\n[bold green]Deployment configuration updated at {}[/bold green]")
-
 
 @app.command()
 def deploy(ctx: typer.Context):

@@ -102,6 +102,9 @@ class ServiceInfo(BaseModel):
     framework: Optional[str] = Field(
         None, description="The primary framework or library used, if any."
     )
+    service_port: Optional[int] = Field(
+        None, description="The port the service listens on, if applicable."
+    )
     build_tool: Optional[str] = Field(
         None,
         description=(

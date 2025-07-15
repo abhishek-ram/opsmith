@@ -1,6 +1,11 @@
 - name: Install and configure Docker on AWS EC2
   hosts: all
   become: true
+  pre_tasks:
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 30
   tasks:
     - name: Install Docker
       ansible.builtin.yum:

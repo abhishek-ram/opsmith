@@ -1,12 +1,18 @@
-- name: Verify Docker on GCP GCE (COS)
+
+- name: Install and configure Docker on GCP GCE (Debian)
   hosts: all
   become: true
+  pre_tasks:
+    - name: Wait for SSH to become available
+      ansible.builtin.wait_for_connection:
+        delay: 15
+        timeout: 60
   tasks:
-    - name: Check if Docker is active
-      ansible.builtin.command: "systemctl is-active docker"
-      register: docker_status
-      changed_when: false
-      failed_when: docker_status.rc != 0
+    - name: Install Docker
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+        update_cache: yes
 
     - name: Set compose arch
       ansible.builtin.set_fact:
@@ -14,26 +20,24 @@
 
     - name: Create docker cli-plugins directory
       ansible.builtin.file:
-        path: "/home/{{ ansible_user }}/.docker/cli-plugins"
+        path: "/usr/local/lib/docker/cli-plugins"
         state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
         mode: "0755"
 
     - name: Install Docker Compose
       ansible.builtin.get_url:
         url: "https://github.com/docker/compose/releases/download/v2.38.2/docker-compose-linux-{{ compose_arch }}"
-        dest: "/home/{{ ansible_user }}/.docker/cli-plugins/docker-compose"
+        dest: "/usr/local/lib/docker/cli-plugins/docker-compose"
         mode: "0755"
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
+
+    - name: Start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
 
     - name: Add remote user to docker group
       ansible.builtin.user:
         name: "{{ ansible_user }}"
         groups: docker
         append: yes
-
-    - name: Print Docker status
-      ansible.builtin.debug:
-        msg: "Docker is already installed and running on Container-Optimized OS."

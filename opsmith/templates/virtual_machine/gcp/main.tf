@@ -29,15 +29,28 @@ resource "google_compute_firewall" "allow_traffic" {
   target_tags   = ["${var.app_name}-monolithic-server"]
 }
 
+resource "google_service_account" "vm_sa" {
+  project      = var.project_id
+  account_id   = "${var.app_name}-vm-sa"
+  display_name = "Service Account for ${var.app_name} VM"
+}
+
+resource "google_project_iam_member" "artifact_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.vm_sa.email}"
+}
+
 resource "google_compute_instance" "app_server" {
   project      = var.project_id
   name         = "${var.app_name}-monolithic-server"
   machine_type = var.instance_type
   zone         = "${var.region}-a" # Simple assumption for zone
+  allow_stopping_for_update = true
 
   boot_disk {
     initialize_params {
-      image = "cos-cloud/cos-stable"
+      image = "debian-cloud/debian-12"
     }
   }
 
@@ -55,6 +68,7 @@ resource "google_compute_instance" "app_server" {
   tags = ["${var.app_name}-monolithic-server"]
 
   service_account {
+    email  = google_service_account.vm_sa.email
     scopes = ["cloud-platform"]
   }
 }

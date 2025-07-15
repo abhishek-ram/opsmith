@@ -357,6 +357,25 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             f" {machine_reqs.ram_gb} GB RAM.[/bold green]"
         )
 
+        questions = [
+            inquirer.Text(
+                "cpu",
+                message="Confirm vCPU cores",
+                default=str(machine_reqs.cpu),
+                validate=lambda _, x: x.isdigit() and int(x) > 0,
+            ),
+            inquirer.Text(
+                "ram_gb",
+                message="Confirm RAM (GB)",
+                default=str(machine_reqs.ram_gb),
+                validate=lambda _, x: x.isdigit() and int(x) > 0,
+            ),
+        ]
+        print("\n[bold]Please confirm machine requirements:[/bold]")
+        answers = inquirer.prompt(questions)
+        machine_reqs.cpu = int(answers["cpu"])
+        machine_reqs.ram_gb = int(answers["ram_gb"])
+
         cloud_provider = deployment_config.cloud_provider_instance
 
         print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from rich import print
+from rich.markup import escape
 
 
 class BaseInfrastructureProvisioner:
@@ -70,7 +71,7 @@ class BaseInfrastructureProvisioner:
             for line in iter(process.stdout.readline, ""):
                 stripped_line = line.strip()
                 full_output.append(stripped_line)
-                print(f"[grey50]{stripped_line}[/grey50]")
+                print(f"[grey50]{escape(stripped_line)}[/grey50]")
                 match = re.search(r'"msg":\s*"OPSMITH_OUTPUT_(\w+)=([^"]*)"', stripped_line)
                 if match:
                     key = match.group(1).lower()

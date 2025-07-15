@@ -35,21 +35,14 @@
 
     - name: "Configure Docker for GCP Artifact Registry"
       command: "gcloud auth configure-docker {{ registry_host_url }} --quiet"
-      when: gcp_artifact_registry_host is defined
       changed_when: false
-      become_user: "{{ remote_user }}"
-
-    - name: Pull docker images
-      community.docker.docker_compose_v2:
-        project_src: "{{ dest_docker_compose | dirname }}"
-        command: pull
       become_user: "{{ remote_user }}"
 
     - name: Run docker-compose up
       community.docker.docker_compose_v2:
         project_src: "{{ dest_docker_compose | dirname }}"
         state: present
-        pull: never
+        pull: always
         recreate: always
         remove_orphans: yes
       become_user: "{{ remote_user }}"

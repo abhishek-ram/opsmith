@@ -28,8 +28,9 @@ For each service, determine:
 2.  `language_version`: The specific version of the language, if identifiable (e.g., "3.9", "17", "ES2020").
 3.  `service_type`: The type of the service. Must be one of: "backend_api", "backend_worker", "frontend", "full_stack".
 4.  `framework`: The primary framework or library used, if any (e.g., "django", "react", "spring boot", "celery").
-5.  `build_tool`: The build tool used for the service, if identifiable (e.g., "maven", "gradle", "npm", "webpack", "pip", "poetry").
-6.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
+5.  `service_port`: The port number the service listens on, if applicable (e.g., 80, 8000, 3000).
+6.  `build_tool`: The build tool used for the service, if identifiable (e.g., "maven", "gradle", "npm", "webpack", "pip", "poetry").
+7.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
     *   `key`: The name of the environment variable.
     *   `is_secret`: A boolean indicating if the variable should be treated as a secret (e.g., contains API keys, passwords, or other sensitive information).
     *   `default_value`: The default value for the variable, if one is provided in the code.
@@ -46,6 +47,7 @@ infrastructure dependencies.
 * Do not rely on the repository map and dependency information alone; read relevant files such as entry points to figure out the services.
 * Look for configuration files or code that initializes connections to databases, caches, message queues, or search engines to identify infrastructure dependencies. Consolidate them into a single list.
 * If a dependency type is identified (e.g., a database via an ORM like SQLAlchemy or Spring Boot) but the specific provider is configurable or not explicitly set in the code, set the `provider` to `"user_choice"`.
+* Look for code that starts a web server to determine the `port` for services that are web-facing.
 * Scan the code for environment variable usage (e.g., `os.environ.get` in Python, `process.env` in Node.js or settings files) to identify required configurations. Keywords like 'SECRET', 'KEY', 'TOKEN', 'PASSWORD' in the variable name often indicate a secret.
 * Read as many files as needed until you are sure about the service and infrastructure dependency details.
 """
