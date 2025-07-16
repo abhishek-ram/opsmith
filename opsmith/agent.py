@@ -1,45 +1,12 @@
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Literal
+from typing import List, Type
 
-from pydantic import BaseModel
 from pydantic_ai import Agent, ModelRetry, RunContext
 
+from opsmith.models import BaseAiModel
 from opsmith.utils import generate_secret_string
-
-
-class ModelConfig(BaseModel):
-    provider: Literal["openai", "anthropic", "google-gla"]
-    model: str
-    api_key_prefix: str
-
-    @property
-    def model_name_abs(self):
-        return f"{self.provider}:{self.model}"
-
-    @property
-    def api_key_env_var(self):
-        return f"{self.api_key_prefix}_API_KEY"
-
-    def ensure_auth(self, api_key: str):
-        os.environ[self.api_key_env_var] = api_key.strip()
-
-
-AVAILABLE_MODELS = [
-    ModelConfig(provider="openai", model="gpt-4.1", api_key_prefix="OPENAI"),
-    ModelConfig(
-        provider="anthropic", model="claude-3-7-sonnet-20250219", api_key_prefix="ANTHROPIC"
-    ),
-    ModelConfig(provider="anthropic", model="claude-sonnet-4-20250514", api_key_prefix="ANTHROPIC"),
-    ModelConfig(
-        provider="google-gla", model="gemini-2.5-pro-preview-06-05", api_key_prefix="GEMINI"
-    ),
-    ModelConfig(provider="google-gla", model="gemini-2.5-pro", api_key_prefix="GEMINI"),
-]
-
-AVAILABLE_MODELS_XREF = {model.model_name_abs: model for model in AVAILABLE_MODELS}
 
 
 @dataclass
@@ -66,9 +33,9 @@ def is_duplicate_tool_call(ctx: RunContext[AgentDeps], tool_name: str) -> bool:
     return False
 
 
-def build_agent(model_config: ModelConfig, instrument: bool = False) -> Agent:
+def build_agent(model_config: Type[BaseAiModel], instrument: bool = False) -> Agent:
     agent = Agent(
-        model=model_config.model_name_abs,
+        model=model_config.model_name_abs(),
         # instructions=SYSTEM_PROMPT,
         instrument=instrument,
         deps_type=AgentDeps,

@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Type
 
 import inquirer
 import logfire
@@ -9,10 +9,11 @@ import yaml
 from pydantic import ValidationError
 from rich import print
 
-from opsmith.agent import AVAILABLE_MODELS_XREF, ModelConfig, build_agent
+from opsmith.agent import build_agent
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError
 from opsmith.deployment_strategies import DEPLOYMENT_STRATEGY_REGISTRY
+from opsmith.models import MODEL_REGISTRY, BaseAiModel
 from opsmith.repo_map import RepoMap
 from opsmith.service_detector import ServiceDetector
 from opsmith.settings import settings
@@ -44,28 +45,28 @@ def _check_external_dependencies():
         raise typer.Exit(code=1)
 
 
-def parse_model_arg(model: str) -> ModelConfig:
+def parse_model_arg(model: str) -> Type[BaseAiModel]:
     """
-    Fetches the configuration corresponding to the given model name.
+    Fetches the class corresponding to the given model name.
 
-    Attempts to retrieve the configuration for the provided model from
-    the mapping of available models. If the model name is not found in
-    the mapping, an error is raised indicating that the model is unsupported.
+    Attempts to retrieve the class for the provided model from
+    the model registry. If the model name is not found in
+    the registry, an error is raised indicating that the model is unsupported.
 
-    :param model: The name of the model for which the configuration is required.
+    :param model: The name of the model for which the class is required.
     :type model: str
 
-    :return: The configuration corresponding to the provided model name.
-    :rtype: ModelConfig
+    :return: The class corresponding to the provided model name.
+    :rtype: Type[BaseAiModel]
 
-    :raises KeyError: If the given model name is not found in the available models mapping.
+    :raises ValueError: If the given model name is not found in the model registry.
     :raises typer.BadParameter: If the provided model name is unsupported.
     """
     try:
-        return AVAILABLE_MODELS_XREF[model]
-    except KeyError:
+        return MODEL_REGISTRY.get_model_class(model)()
+    except ValueError:
         raise typer.BadParameter(
-            f"Unsupported model name: {model}, must be one of: {AVAILABLE_MODELS_XREF.keys()}"
+            f"Unsupported model name: {model}, must be one of: {MODEL_REGISTRY.model_names}"
         )
 
 
@@ -92,8 +93,8 @@ def api_key_callback(ctx: typer.Context, value: str):
     """
     if "model" not in ctx.params:
         raise typer.BadParameter("The --model option must be specified before --api-key.")
-    model_config = ctx.params["model"]
-    model_config.ensure_auth(value)
+    model_class = ctx.params["model"]
+    model_class.ensure_auth(value)
     return value
 
 
@@ -101,7 +102,7 @@ def api_key_callback(ctx: typer.Context, value: str):
 def main(
     ctx: typer.Context,
     model: Annotated[
-        ModelConfig,
+        Type[BaseAiModel],
         typer.Option(
             parser=parse_model_arg,
             help="The LLM model to be used for by the AI Agent.",
