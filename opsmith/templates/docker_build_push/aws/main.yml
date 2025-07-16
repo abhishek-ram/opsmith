@@ -30,15 +30,13 @@
           fail:
             msg: "Failed to login to AWS ECR. Please check your credentials."
 
-    - name: Build Docker image
-      community.docker.docker_image:
-        name: "{{ image_name }}:{{ image_tag }}"
-        build:
-          path: "{{ dockerfile_path }}"
-          dockerfile: "{{ dockerfile_name }}"
-        source: build
-        state: present
-        force_source: yes  # This forces a rebuild
+    - name: Build platform-specific images
+      shell: |
+        docker build \
+          --platform linux/amd64,linux/arm64 \
+          --file {{ dockerfile_name }} \
+          --tag {{ image_name }}:{{ image_tag }} \
+          {{ docker_path }}
       register: image_build_result
 
     - name: Push Docker image
@@ -46,7 +44,7 @@
         name: "{{ image_name }}:{{ image_tag }}"
         push: yes
         source: local
-      when: image_build_result.changed
+      when: image_build_result is succeeded
 
     - name: Print image URL
       debug:

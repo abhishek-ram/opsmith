@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import inquirer
+import jinja2
 import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, Field
@@ -24,7 +25,7 @@ from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
-    MonolithicConfig,
+    MonolithicDeploymentConfig,
     ServiceTypeEnum,
     VirtualMachineConfig,
 )
@@ -128,7 +129,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
-        environment_config: MonolithicConfig,
+        environment_config: MonolithicDeploymentConfig,
         env_file_content: str,
     ) -> str:
         """
@@ -174,14 +175,18 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
         images: Dict[str, str],
-        environment_config: MonolithicConfig,
+        environment_config: MonolithicDeploymentConfig,
     ):
         print("\n[bold blue]Generating docker-compose file...[/bold blue]")
 
         template_dir = Path(__file__).parent.parent / "templates"
-        base_compose_path = template_dir / "docker_compose_snippets" / "base.yml"
-        with open(base_compose_path, "r", encoding="utf-8") as f:
-            base_compose = f.read().format(app_name=deployment_config.app_name_slug)
+        jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(template_dir / "docker_compose_snippets"),
+            autoescape=False,
+        )
+
+        base_compose_template = jinja_env.get_template("base.yml")
+        base_compose = base_compose_template.render(app_name=deployment_config.app_name_slug)
 
         services_info = {}
         service_snippets_list = []
@@ -195,31 +200,24 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 ServiceTypeEnum.FULL_STACK,
             ]:
                 continue
-            snippet_path = (
-                template_dir / "docker_compose_snippets" / "services" / f"{service_type_slug}.yml"
-            )
-            if snippet_path.exists():
-                with open(snippet_path, "r", encoding="utf-8") as f:
-                    content = f.read()
 
-                image_url = images.get(service.name_slug)
-                if not image_url:
-                    continue
+            template = jinja_env.get_template(f"services/{service_type_slug}.yml")
+            image_url = images[service.name_slug]
 
-                content = content.format(image_name=image_url, port=8000)
-                service_snippets_list.append(f"# {service.name_slug}\n{content}")
+            content = template.render(image_name=image_url, port=service.service_port)
+            service_snippets_list.append(f"# {service.name_slug}\n{content}")
         service_snippets = "\n\n".join(service_snippets_list)
 
         infra_snippets_list = []
         for infra in deployment_config.infra_deps:
-            snippet_path = template_dir / "docker_compose_snippets" / f"{infra.provider}.yml"
-            if snippet_path.exists():
-                with open(snippet_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    content = content.format(
-                        version=infra.version, app_name=deployment_config.app_name_slug
-                    )
-                    infra_snippets_list.append(f"# {infra.provider}\n{content}")
+            template = jinja_env.get_template(f"{infra.provider}.yml")
+
+            content = template.render(
+                version=infra.version,
+                app_name=deployment_config.app_name_slug,
+                architecture=environment_config.virtual_machine.architecture.value,
+            )
+            infra_snippets_list.append(f"# {infra.provider}\n{content}")
         infra_snippets = "\n\n".join(infra_snippets_list)
 
         services_info_yaml = yaml.dump(services_info)
@@ -395,7 +393,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         )
 
         env_config_path = self._get_env_config_path(environment.name)
-        env_config = MonolithicConfig(
+        env_config = MonolithicDeploymentConfig(
             registry_url=registry_url,
             virtual_machine=VirtualMachineConfig(
                 instance_type=instance_type,
@@ -416,7 +414,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     ):
         """Deploys the application."""
         env_config_path = self._get_env_config_path(environment.name)
-        env_config = MonolithicConfig.load(env_config_path)
+        env_config = MonolithicDeploymentConfig.load(env_config_path)
 
         self._build_and_push_images(deployment_config, environment, env_config.registry_url)
 
@@ -449,7 +447,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         if infra_path.exists():
             env_config_path = self._get_env_config_path(environment.name)
-            env_config = MonolithicConfig.load(env_config_path)
+            env_config = MonolithicDeploymentConfig.load(env_config_path)
             if not env_config:
                 print(
                     f"[bold red]Configuration for environment '{environment.name}' is missing or"

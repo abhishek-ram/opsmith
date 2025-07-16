@@ -216,7 +216,7 @@ class VirtualMachineConfig(BaseModel):
     user: str = Field(..., description="The SSH user for the virtual machine.")
 
 
-class MonolithicConfig(BaseModel):
+class MonolithicDeploymentConfig(BaseModel):
     """Configuration for a monolithic deployment environment."""
 
     registry_url: str = Field(..., description="The URL of the container registry.")
@@ -225,7 +225,7 @@ class MonolithicConfig(BaseModel):
     )
 
     @classmethod
-    def load(cls: Type["MonolithicConfig"], path: Path) -> "MonolithicConfig":
+    def load(cls: Type["MonolithicDeploymentConfig"], path: Path) -> "MonolithicDeploymentConfig":
         """Loads the monolithic deployment configuration from a YAML file."""
         if not path.exists():
             raise MonolithicDeploymentError(f"Config file '{path}' does not exist.")

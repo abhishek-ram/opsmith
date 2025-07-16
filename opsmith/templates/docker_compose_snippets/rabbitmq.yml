@@ -1,9 +1,9 @@
 rabbitmq:
-  image: rapidfort/rabbitmq-official:{version}
+  image: {% if architecture == 'arm64' %}arm64v8/rabbitmq{% else %}rapidfort/rabbitmq-official{% endif %}:{{ version }}
   restart: always
   environment:
-    - RABBITMQ_DEFAULT_USER=${{RABBITMQ_DEFAULT_USER}}
-    - RABBITMQ_DEFAULT_PASS=${{RABBITMQ_DEFAULT_PASS}}
+    - RABBITMQ_DEFAULT_USER={{ '${RABBITMQ_DEFAULT_USER}' }}
+    - RABBITMQ_DEFAULT_PASS={{ '${RABBITMQ_DEFAULT_PASS}' }}
   network:
     - default
   ports:

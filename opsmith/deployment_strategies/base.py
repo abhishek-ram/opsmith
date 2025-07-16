@@ -207,7 +207,7 @@ class BaseDeploymentStrategy(abc.ABC):
             provider_name = deployment_config.cloud_provider["name"].lower()
 
             extra_vars = {
-                "dockerfile_path": str(self.agent_deps.src_dir),
+                "docker_path": str(self.agent_deps.src_dir),
                 "dockerfile_name": str(dockerfile_path_abs),
                 "image_name_slug": image_name_slug,
                 "image_tag_name": "latest",

@@ -1,5 +1,5 @@
 redis:
-  image: arm64v8/redis:{version}
+  image: {% if architecture == 'arm64' %}arm64v8/redis{% else %}rapidfort/redis-official{% endif %}:{{ version }}
   restart: always
   ports:
     - "6379:6379"

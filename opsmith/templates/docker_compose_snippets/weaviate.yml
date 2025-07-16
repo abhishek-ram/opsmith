@@ -1,5 +1,5 @@
 weaviate:
-  image: cr.weaviate.io/semitechnologies/weaviate:{version}
+  image: cr.weaviate.io/semitechnologies/weaviate:{{ version }}
   restart: on-failure
   ports:
     - "8081:8080"

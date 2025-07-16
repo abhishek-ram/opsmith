@@ -1,5 +1,5 @@
 elasticsearch:
-  image: rapidfort/elasticsearch-official:{version}
+  image: {% if architecture == 'arm64' %}arm64v8/elasticsearch{% else %}rapidfort/elasticsearch-official{% endif %}:{{ version }}
   restart: always
   environment:
     - discovery.type=single-node

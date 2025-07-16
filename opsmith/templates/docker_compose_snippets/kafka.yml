@@ -1,5 +1,5 @@
 kafka:
-  image: bitnami/kafka:{version}
+  image: bitnami/kafka:{{ version }}
   restart: always
   ports:
     - "9092:9092"

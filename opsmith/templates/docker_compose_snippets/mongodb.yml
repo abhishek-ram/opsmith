@@ -1,10 +1,10 @@
 mongodb:
-  image: rapidfort/mongodb-official:{version}
+  image: {% if architecture == 'arm64' %}arm64v8/mongo{% else %}rapidfort/mongodb-official{% endif %}:{{ version }}
   restart: always
   environment:
-    - MONGO_INITDB_DATABASE={app_name}
-    - MONGO_INITDB_ROOT_USERNAME=${{MONGO_INITDB_ROOT_USERNAME}}
-    - MONGO_INITDB_ROOT_PASSWORD=${{MONGO_INITDB_ROOT_PASSWORD}}
+    - MONGO_INITDB_DATABASE={{ app_name }}
+    - MONGO_INITDB_ROOT_USERNAME={{ '${MONGO_INITDB_ROOT_USERNAME}' }}
+    - MONGO_INITDB_ROOT_PASSWORD={{ '${MONGO_INITDB_ROOT_PASSWORD}' }}
   network:
     - default
   volumes:
