@@ -205,7 +205,7 @@ class DeploymentConfig(ServiceList):
         print(f"\n[bold blue]Deployment configuration saved to: {config_file_path}[/bold blue]")
 
 
-class VirtualMachineConfig(BaseModel):
+class VirtualMachineState(BaseModel):
     """Describes the configuration of a virtual machine for a monolithic deployment."""
 
     cpu: int = Field(..., description="The number of virtual CPU cores for the machine.")
@@ -218,19 +218,19 @@ class VirtualMachineConfig(BaseModel):
     user: str = Field(..., description="The SSH user for the virtual machine.")
 
 
-class MonolithicDeploymentConfig(BaseModel):
-    """Configuration for a monolithic deployment environment."""
+class MonolithicDeploymentState(BaseModel):
+    """State for a monolithic deployment environment."""
 
     registry_url: str = Field(..., description="The URL of the container registry.")
-    virtual_machine: VirtualMachineConfig = Field(
-        ..., description="The configuration of the virtual machine."
+    virtual_machine: VirtualMachineState = Field(
+        ..., description="The state of the virtual machine."
     )
 
     @classmethod
-    def load(cls: Type["MonolithicDeploymentConfig"], path: Path) -> "MonolithicDeploymentConfig":
-        """Loads the monolithic deployment configuration from a YAML file."""
+    def load(cls: Type["MonolithicDeploymentState"], path: Path) -> "MonolithicDeploymentState":
+        """Loads the monolithic deployment state from a YAML file."""
         if not path.exists():
-            raise MonolithicDeploymentError(f"Config file '{path}' does not exist.")
+            raise MonolithicDeploymentError(f"State file '{path}' does not exist.")
 
         with open(path, "r", encoding="utf-8") as f:
             config_data = yaml.safe_load(f)

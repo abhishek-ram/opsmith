@@ -25,9 +25,9 @@ from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
-    MonolithicDeploymentConfig,
+    MonolithicDeploymentState,
     ServiceTypeEnum,
-    VirtualMachineConfig,
+    VirtualMachineState,
 )
 
 
@@ -129,7 +129,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
-        environment_config: MonolithicDeploymentConfig,
+        environment_state: MonolithicDeploymentState,
         env_file_content: str,
     ) -> str:
         """
@@ -137,8 +137,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         """
         print("\n[bold blue]Deploying docker-compose stack...[/bold blue]")
         ansible_user, instance_public_ip = (
-            environment_config.virtual_machine.user,
-            environment_config.virtual_machine.public_ip,
+            environment_state.virtual_machine.user,
+            environment_state.virtual_machine.public_ip,
         )
         deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(environment)
 
@@ -153,7 +153,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             "env_file_content": env_file_content,
             "dest_env_file": f"/home/{ansible_user}/app/.env",
             "remote_user": ansible_user,
-            "registry_host_url": environment_config.registry_url.split("/")[0],
+            "registry_host_url": environment_state.registry_url.split("/")[0],
         }
 
         try:
@@ -175,7 +175,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
         images: Dict[str, str],
-        environment_config: MonolithicDeploymentConfig,
+        environment_state: MonolithicDeploymentState,
     ):
         print("\n[bold blue]Generating docker-compose file...[/bold blue]")
 
@@ -215,7 +215,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             content = template.render(
                 version=infra.version,
                 app_name=deployment_config.app_name_slug,
-                architecture=environment_config.virtual_machine.architecture.value,
+                architecture=environment_state.virtual_machine.architecture.value,
             )
             infra_snippets_list.append(f"# {infra.provider}\n{content}")
         infra_snippets = "\n\n".join(infra_snippets_list)
@@ -262,7 +262,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             deployment_output = self._deploy_docker_compose(
                 deployment_config,
                 environment,
-                environment_config,
+                environment_state,
                 confirmed_env_content,
             )
 
@@ -392,10 +392,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             deployment_config, environment, instance_type, cloud_provider
         )
 
-        env_config_path = self._get_env_config_path(environment.name)
-        env_config = MonolithicDeploymentConfig(
+        env_state_path = self._get_env_state_path(environment.name)
+        env_state = MonolithicDeploymentState(
             registry_url=registry_url,
-            virtual_machine=VirtualMachineConfig(
+            virtual_machine=VirtualMachineState(
                 ram_gb=machine_reqs.ram_gb,
                 cpu=machine_reqs.cpu,
                 instance_type=instance_type,
@@ -404,10 +404,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 user=ansible_user,
             ),
         )
-        env_config.save(env_config_path)
-        print(f"Virtual machine details saved to {env_config_path}")
+        env_state.save(env_state_path)
+        print(f"Monolithic deployment state saved to {env_state_path}")
 
-        self._generate_docker_compose(deployment_config, environment, images, env_config)
+        self._generate_docker_compose(deployment_config, environment, images, env_state)
 
     def release(
         self,
@@ -415,23 +415,23 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         environment: DeploymentEnvironment,
     ):
         """Deploys the application."""
-        env_config_path = self._get_env_config_path(environment.name)
-        env_config = MonolithicDeploymentConfig.load(env_config_path)
+        env_state_path = self._get_env_state_path(environment.name)
+        env_state = MonolithicDeploymentState.load(env_state_path)
 
-        self._build_and_push_images(deployment_config, environment, env_config.registry_url)
+        self._build_and_push_images(deployment_config, environment, env_state.registry_url)
 
-        env_file_path = f"/home/{env_config.virtual_machine.user}/app/.env"
+        env_file_path = f"/home/{env_state.virtual_machine.user}/app/.env"
         fetched_files = self._fetch_remote_deployment_files(
             environment,
-            env_config.virtual_machine.public_ip,
-            env_config.virtual_machine.user,
+            env_state.virtual_machine.public_ip,
+            env_state.virtual_machine.user,
             [env_file_path],
         )
 
         self._deploy_docker_compose(
             deployment_config,
             environment,
-            env_config,
+            env_state,
             fetched_files[0],
         )
 
@@ -448,11 +448,11 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
 
         if infra_path.exists():
-            env_config_path = self._get_env_config_path(environment.name)
-            env_config = MonolithicDeploymentConfig.load(env_config_path)
-            if not env_config:
+            env_state_path = self._get_env_state_path(environment.name)
+            env_state = MonolithicDeploymentState.load(env_state_path)
+            if not env_state:
                 print(
-                    f"[bold red]Configuration for environment '{environment.name}' is missing or"
+                    f"[bold red]Setup for environment '{environment.name}' is missing or"
                     " incomplete. Cannot proceed with destruction.[/bold red]"
                 )
                 raise MonolithicDeploymentError(
@@ -463,7 +463,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
             variables = {
                 "app_name": deployment_config.app_name_slug,
-                "instance_type": env_config.virtual_machine.instance_type,
+                "instance_type": env_state.virtual_machine.instance_type,
                 "region": environment.region,
                 "ssh_pub_key": self._get_ssh_public_key(),
             }
