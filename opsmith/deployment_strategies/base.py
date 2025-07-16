@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import subprocess
+import time
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type
@@ -344,6 +345,9 @@ class BaseDeploymentStrategy(abc.ABC):
             if not ansible_user:
                 print("[bold red]Could not find 'ansible_user' in Terraform outputs.[/bold red]")
                 raise ValueError("Could not find 'ansible_user' in Terraform outputs.")
+
+            print("\n[bold blue]Waiting 15 seconds for instance to become ready...[/bold blue]")
+            time.sleep(15)
 
             print("\n[bold blue]Setting up Docker on the new instance...[/bold blue]")
 

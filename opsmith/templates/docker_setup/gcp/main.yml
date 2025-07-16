@@ -2,11 +2,6 @@
 - name: Install and configure Docker on GCP GCE (Debian)
   hosts: all
   become: true
-  pre_tasks:
-    - name: Wait for SSH to become available
-      ansible.builtin.wait_for_connection:
-        delay: 15
-        timeout: 60
   tasks:
     - name: Install Docker
       ansible.builtin.apt:
