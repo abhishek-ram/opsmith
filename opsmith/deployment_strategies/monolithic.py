@@ -396,6 +396,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         env_config = MonolithicDeploymentConfig(
             registry_url=registry_url,
             virtual_machine=VirtualMachineConfig(
+                ram_gb=machine_reqs.ram_gb,
+                cpu=machine_reqs.cpu,
                 instance_type=instance_type,
                 architecture=instance_arch,
                 public_ip=instance_public_ip,

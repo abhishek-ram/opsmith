@@ -208,6 +208,8 @@ class DeploymentConfig(ServiceList):
 class VirtualMachineConfig(BaseModel):
     """Describes the configuration of a virtual machine for a monolithic deployment."""
 
+    cpu: int = Field(..., description="The number of virtual CPU cores for the machine.")
+    ram_gb: int = Field(..., description="The amount of RAM in gigabytes for the machine.")
     instance_type: str = Field(..., description="The instance type of the virtual machine.")
     architecture: CpuArchitectureEnum = Field(
         ..., description="The CPU architecture of the virtual machine."
