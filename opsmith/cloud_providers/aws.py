@@ -10,6 +10,8 @@ from opsmith.cloud_providers.base import (
     BaseCloudProviderDetail,
     CloudCredentialsError,
     CpuArchitectureEnum,
+    MachineType,
+    MachineTypeList,
 )
 
 
@@ -58,17 +60,30 @@ class AWSProvider(BaseCloudProvider):
 
         return sorted(regions, key=lambda x: x[1])
 
-    def get_instance_type(
-        self, cpu: int, ram_gb: int, region: str
-    ) -> tuple[str, CpuArchitectureEnum]:
+    def get_instance_types(self, region: str) -> MachineTypeList:
         """
-        Retrieves an appropriate instance type for the given resource requirements using heuristics.
+        Retrieves a list of available instance types for the given region using heuristics.
         """
         ec2_client = boto3.client("ec2", region_name=region)
-        ram_mb = ram_gb * 1024
 
-        # Prioritize newer generation, general-purpose instance families
-        instance_families = ["t4g", "t3", "m7g", "m7i", "m6g", "m6i", "m5"]
+        # Prioritize newer generation, general-purpose and compute-optimized instance families
+        instance_families = [
+            "t4g",
+            "t3",
+            "m7g",
+            "m7i",
+            "m6g",
+            "m6i",
+            "m5",
+            "c5",
+            "c5a",
+            "c6g",
+            "c6gn",
+            "c7g",
+            "c7gn",
+            "c8g",
+            "c8gn",
+        ]
         instance_type_patterns = [f"{family}.*" for family in instance_families]
 
         paginator = ec2_client.get_paginator("describe_instance_types")
@@ -79,7 +94,7 @@ class AWSProvider(BaseCloudProvider):
             ]
         )
 
-        eligible_instances = []
+        all_instances = []
         for page in pages:
             for itype in page["InstanceTypes"]:
                 if (
@@ -91,39 +106,22 @@ class AWSProvider(BaseCloudProvider):
                     and "SupportedArchitectures" in itype["ProcessorInfo"]
                     and itype["ProcessorInfo"]["SupportedArchitectures"]
                 ):
-                    instance_vcpu = itype["VCpuInfo"]["DefaultVCpus"]
-                    instance_mem_mb = itype["MemoryInfo"]["SizeInMiB"]
                     instance_arch_str = itype["ProcessorInfo"]["SupportedArchitectures"][0]
                     try:
                         instance_arch = CpuArchitectureEnum(instance_arch_str)
                     except ValueError:
                         continue
 
-                    if instance_vcpu >= cpu and instance_mem_mb >= ram_mb:
-                        eligible_instances.append(
-                            {
-                                "name": itype["InstanceType"],
-                                "cpu": instance_vcpu,
-                                "ram_mb": instance_mem_mb,
-                                "arch": instance_arch,
-                            }
+                    all_instances.append(
+                        MachineType(
+                            name=itype["InstanceType"],
+                            cpu=itype["VCpuInfo"]["DefaultVCpus"],
+                            ram_gb=round(itype["MemoryInfo"]["SizeInMiB"] / 1024, 2),
+                            architecture=instance_arch,
                         )
+                    )
 
-        if not eligible_instances:
-            raise ValueError(
-                "Could not find any suitable instance type for the given requirements."
-            )
-
-        # Sort by vCPU and then RAM to find the smallest/cheapest instance
-        eligible_instances.sort(
-            key=lambda x: (
-                x["cpu"],
-                x["ram_mb"],
-            )
-        )
-
-        selected_instance = eligible_instances[0]
-        return selected_instance["name"], selected_instance["arch"]
+        return MachineTypeList(machines=all_instances)
 
     @classmethod
     def get_account_details(cls) -> AWSCloudDetail:

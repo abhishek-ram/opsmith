@@ -12,6 +12,8 @@ from opsmith.cloud_providers.base import (
     BaseCloudProviderDetail,
     CloudCredentialsError,
     CpuArchitectureEnum,
+    MachineType,
+    MachineTypeList,
 )
 
 GCP_REGION_DESCRIPTIONS = {
@@ -121,15 +123,12 @@ class GCPProvider(BaseCloudProvider):
 
         return sorted(regions, key=lambda x: x[1])
 
-    def get_instance_type(
-        self, cpu: int, ram_gb: int, region: str
-    ) -> tuple[str, CpuArchitectureEnum]:
+    def get_instance_types(self, region: str) -> MachineTypeList:
         """
-        Retrieves an appropriate instance type for the given resource requirements using the GCP API.
+        Retrieves a list of available instance types for the given region using the GCP API.
         """
         client = compute_v1.MachineTypesClient(credentials=self.get_credentials())
         project_id = self.provider_detail.project_id
-        ram_mb = ram_gb * 1024
 
         # We need a zone to list machine types. We'll pick a zone in the region, assuming standard naming.
         zone = f"{region}-a"
@@ -137,7 +136,7 @@ class GCPProvider(BaseCloudProvider):
         request = compute_v1.ListMachineTypesRequest(project=project_id, zone=zone)
         pager = client.list(request=request)
 
-        eligible_machines = []
+        all_machines = []
         for mtype in pager:
             if mtype.deprecated:
                 continue
@@ -148,27 +147,19 @@ class GCPProvider(BaseCloudProvider):
             if mtype.name.startswith(("t2a-", "c4a-")):
                 arch = CpuArchitectureEnum.ARM64
 
-            if mtype.guest_cpus >= cpu and mtype.memory_mb >= ram_mb:
-                eligible_machines.append(
-                    {
-                        "name": mtype.name,
-                        "cpu": mtype.guest_cpus,
-                        "ram_mb": mtype.memory_mb,
-                        "arch": arch,
-                    }
+            all_machines.append(
+                MachineType(
+                    name=mtype.name,
+                    cpu=mtype.guest_cpus,
+                    ram_gb=round(mtype.memory_mb / 1024, 2),
+                    architecture=arch,
                 )
-
-        if not eligible_machines:
-            raise ValueError(
-                "Could not find any suitable instance type for the given requirements in zone"
-                f" {zone}."
             )
 
-        # Sort by vCPU, then RAM to find the smallest/cheapest instance
-        eligible_machines.sort(key=lambda x: (x["cpu"], x["ram_mb"]))
+        if not all_machines:
+            raise ValueError(f"Could not find any instance types in zone {zone}.")
 
-        selected_machine = eligible_machines[0]
-        return selected_machine["name"], selected_machine["arch"]
+        return MachineTypeList(machines=all_machines)
 
     @classmethod
     def get_account_details(cls) -> GCPCloudDetail:

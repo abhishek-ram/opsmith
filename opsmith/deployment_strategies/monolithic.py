@@ -12,6 +12,7 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 from rich import print
 
+from opsmith.cloud_providers.base import MachineType
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
 from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
@@ -355,37 +356,36 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             f" {machine_reqs.ram_gb} GB RAM.[/bold green]"
         )
 
-        questions = [
-            inquirer.Text(
-                "cpu",
-                message="Confirm vCPU cores",
-                default=str(machine_reqs.cpu),
-                validate=lambda _, x: x.isdigit() and int(x) > 0,
-            ),
-            inquirer.Text(
-                "ram_gb",
-                message="Confirm RAM (GB)",
-                default=str(machine_reqs.ram_gb),
-                validate=lambda _, x: x.isdigit() and int(x) > 0,
-            ),
-        ]
-        print("\n[bold]Please confirm machine requirements:[/bold]")
-        answers = inquirer.prompt(questions)
-        machine_reqs.cpu = int(answers["cpu"])
-        machine_reqs.ram_gb = int(answers["ram_gb"])
-
         cloud_provider = deployment_config.cloud_provider_instance
 
         print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
 
-        with WaitingSpinner(text="Selecting instance type", delay=0.1):
-            instance_type, instance_arch = cloud_provider.get_instance_type(
-                machine_reqs.cpu, machine_reqs.ram_gb, environment.region
+        with WaitingSpinner(text="Fetching available instance types", delay=0.1):
+            machine_type_list = cloud_provider.get_instance_types(environment.region)
+            choices, recommended_instance = machine_type_list.find_instance_options(
+                machine_reqs.cpu, machine_reqs.ram_gb
             )
-            print(
-                f"[bold green]Selected instance type: {instance_type} ({instance_arch.value})[/bold"
-                " green]"
+
+        if not choices:
+            raise MonolithicDeploymentError("No suitable instance types found.")
+
+        questions = [
+            inquirer.List(
+                "instance_type",
+                message="Select an instance type for the new environment",
+                choices=choices,
+                default=recommended_instance,
             )
+        ]
+        answers = inquirer.prompt(questions)
+        selected_machine_type: MachineType = answers["instance_type"]
+
+        instance_type = selected_machine_type.name
+        instance_arch = selected_machine_type.architecture
+        print(
+            f"[bold green]Selected instance type: {instance_type} ({instance_arch.value})[/bold"
+            " green]"
+        )
 
         print("\n[bold blue]Creating new virtual machine for monolithic deployment...[/bold blue]")
         instance_public_ip, ansible_user = self._create_virtual_machine(
@@ -396,8 +396,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         env_state = MonolithicDeploymentState(
             registry_url=registry_url,
             virtual_machine=VirtualMachineState(
-                ram_gb=machine_reqs.ram_gb,
-                cpu=machine_reqs.cpu,
+                ram_gb=selected_machine_type.ram_gb,
+                cpu=selected_machine_type.cpu,
                 instance_type=instance_type,
                 architecture=instance_arch,
                 public_ip=instance_public_ip,
