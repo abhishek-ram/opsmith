@@ -3,6 +3,12 @@ import os
 from importlib.metadata import entry_points
 from typing import Dict, List, Optional, Tuple, Type
 
+from anthropic.types.beta import BetaThinkingConfigEnabledParam
+from google.genai.types import ThinkingConfigDict
+from pydantic_ai.models.anthropic import AnthropicModelSettings
+from pydantic_ai.models.google import GoogleModelSettings
+from pydantic_ai.models.openai import OpenAIModelSettings
+from pydantic_ai.settings import ModelSettings
 from rich import print
 
 
@@ -25,6 +31,12 @@ class BaseAiModel(abc.ABC):
     @abc.abstractmethod
     def api_key_prefix(cls) -> str:
         """The prefix for the API key environment variable (e.g., 'OPENAI')."""
+        raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def get_model_settings(cls) -> ModelSettings:
+        """Returns model-specific settings."""
         raise NotImplementedError
 
     @classmethod
@@ -92,7 +104,6 @@ class ModelRegistry:
             OpenAIGPT41,
             AnthropicClaudeSonnet37,
             AnthropicClaudeSonnet4,
-            GoogleGlaGemini25ProPreview,
             GoogleGlaGemini25Pro,
         ]:
             self.register(model_cls)
@@ -126,6 +137,30 @@ class OpenAIGPT41(BaseAiModel):
     def api_key_prefix(cls) -> str:
         return "OPENAI"
 
+    @classmethod
+    def get_model_settings(cls) -> ModelSettings:
+        """Returns model-specific settings."""
+        return OpenAIModelSettings(openai_reasoning_effort="high")
+
+
+class OpenAIGPTO3(BaseAiModel):
+    @classmethod
+    def name(cls) -> str:
+        return "gpt-o3"
+
+    @classmethod
+    def provider(cls) -> str:
+        return "openai"
+
+    @classmethod
+    def api_key_prefix(cls) -> str:
+        return "OPENAI"
+
+    @classmethod
+    def get_model_settings(cls) -> ModelSettings:
+        """Returns model-specific settings."""
+        return OpenAIModelSettings(openai_reasoning_effort="high")
+
 
 class AnthropicClaudeSonnet37(BaseAiModel):
     @classmethod
@@ -139,6 +174,13 @@ class AnthropicClaudeSonnet37(BaseAiModel):
     @classmethod
     def api_key_prefix(cls) -> str:
         return "ANTHROPIC"
+
+    @classmethod
+    def get_model_settings(cls) -> ModelSettings:
+        """Returns model-specific settings."""
+        return AnthropicModelSettings(
+            anthropic_thinking=BetaThinkingConfigEnabledParam(type="enabled", budget_tokens=32768)
+        )
 
 
 class AnthropicClaudeSonnet4(BaseAiModel):
@@ -154,19 +196,12 @@ class AnthropicClaudeSonnet4(BaseAiModel):
     def api_key_prefix(cls) -> str:
         return "ANTHROPIC"
 
-
-class GoogleGlaGemini25ProPreview(BaseAiModel):
     @classmethod
-    def name(cls) -> str:
-        return "gemini-2.5-pro-preview-06-05"
-
-    @classmethod
-    def provider(cls) -> str:
-        return "google-gla"
-
-    @classmethod
-    def api_key_prefix(cls) -> str:
-        return "GEMINI"
+    def get_model_settings(cls) -> ModelSettings:
+        """Returns model-specific settings."""
+        return AnthropicModelSettings(
+            anthropic_thinking=BetaThinkingConfigEnabledParam(type="enabled", budget_tokens=32768)
+        )
 
 
 class GoogleGlaGemini25Pro(BaseAiModel):
@@ -181,6 +216,13 @@ class GoogleGlaGemini25Pro(BaseAiModel):
     @classmethod
     def api_key_prefix(cls) -> str:
         return "GEMINI"
+
+    @classmethod
+    def get_model_settings(cls) -> ModelSettings:
+        """Returns model-specific settings."""
+        return GoogleModelSettings(
+            google_thinking_config=ThinkingConfigDict(include_thoughts=True, thinking_budget=-1)
+        )
 
 
 MODEL_REGISTRY = ModelRegistry()
