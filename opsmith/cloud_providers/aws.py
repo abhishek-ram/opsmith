@@ -56,7 +56,7 @@ class AWSProvider(BaseCloudProvider):
             description = data.get("description", code.replace("-", " ").title())
             regions.append((f"{description} ({code})", code))
 
-        return sorted(regions)
+        return sorted(regions, key=lambda x: x[1])
 
     def get_instance_type(
         self, cpu: int, ram_gb: int, region: str
