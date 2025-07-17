@@ -100,6 +100,7 @@ class BaseDeploymentStrategy(abc.ABC):
         self.agent_deps = AgentDeps(src_dir=Path(src_dir))
         self.src_dir = src_dir
         self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
+        self.templates_dir = Path(__file__).parent.parent / "templates"
 
     def _get_env_state_path(self, environment_name: str) -> Path:
         return self.deployments_path / "environments" / environment_name / "state.yml"

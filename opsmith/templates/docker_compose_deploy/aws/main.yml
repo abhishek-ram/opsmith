@@ -33,6 +33,22 @@
         group: "{{ remote_user }}"
         mode: "0600"
 
+    - name: Copy traefik.yml to remote
+      ansible.builtin.copy:
+        content: "{{ traefik_yml_content }}"
+        dest: "{{ dest_docker_compose | dirname }}/traefik.yml"
+        owner: "{{ remote_user }}"
+        group: "{{ remote_user }}"
+        mode: "0644"
+
+    - name: Create acme.json for Traefik SSL
+      ansible.builtin.file:
+        path: "{{ dest_docker_compose | dirname }}/acme.json"
+        state: touch
+        owner: "{{ remote_user }}"
+        group: "{{ remote_user }}"
+        mode: "0600"
+
     - name: "Login to AWS ECR"
       block:
         - name: Get ECR login password

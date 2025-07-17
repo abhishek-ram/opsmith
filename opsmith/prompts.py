@@ -150,7 +150,6 @@ Your job is to combine these into a single valid docker-compose.yml file and pro
 **docker-compose.yml instructions:**
 - The `service:` key in service snippets should be replaced by the `service_name_slug`.
 - The service snippets are already filled with the correct image names.
-- For services of type `BACKEND_API` and `FULL_STACK`, add traefik labels for routing. Use the service name slug as the host rule. e.g. `Host(`{{service_name_slug}}.localhost`)`
 - Place all services and infra dependencies under the `services:` key in the final yaml.
 - The base file defines a network. All services should be part of this network.
 - Each application service should have a `depends_on` section listing all infrastructure dependency services. The service names for infra dependencies are the keys from `infra_snippets`.

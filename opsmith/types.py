@@ -134,6 +134,13 @@ class ServiceList(BaseModel):
     )
 
 
+class DomainInfo(BaseModel):
+    """Describes a domain configuration for a service."""
+
+    service_name_slug: str = Field(..., description="The slug of the service this domain is for.")
+    domain_name: str = Field(..., description="The domain name for the service.")
+
+
 class DeploymentEnvironment(BaseModel):
     """Describes a deployment environment."""
 
@@ -142,6 +149,13 @@ class DeploymentEnvironment(BaseModel):
     )
     region: str = Field(..., description="The cloud provider region for this environment.")
     strategy: str = Field(..., description="The deployment strategy for this environment.")
+    domain_email: Optional[str] = Field(
+        None,
+        description="The email for SSL certificate registration with services like Let's Encrypt.",
+    )
+    domains: List[DomainInfo] = Field(
+        default_factory=list, description="A list of domain configurations for services."
+    )
 
 
 class DeploymentConfig(ServiceList):

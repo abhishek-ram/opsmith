@@ -77,6 +77,13 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     def description(cls) -> str:
         return "Deploys the entire application as a single unit."
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.docker_compose_snippets_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(self.templates_dir / "docker_compose_snippets"),
+            autoescape=False,
+        )
+
     @staticmethod
     def _confirm_env_vars(
         deployment_config: DeploymentConfig,
@@ -148,6 +155,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         ansible_runner.copy_template(
             "docker_compose_deploy", deployment_config.cloud_provider_instance.name().lower()
         )
+
+        traefik_template = self.docker_compose_snippets_env.get_template("traefik.yml")
+        traefik_content = traefik_template.render(domain_email=environment.domain_email or "")
+
         extra_vars = {
             "src_docker_compose": str(docker_compose_path),
             "dest_docker_compose": f"/home/{ansible_user}/app/docker-compose.yml",
@@ -155,6 +166,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             "dest_env_file": f"/home/{ansible_user}/app/.env",
             "remote_user": ansible_user,
             "registry_host_url": environment_state.registry_url.split("/")[0],
+            "traefik_yml_content": traefik_content,
         }
 
         try:
@@ -180,17 +192,12 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     ):
         print("\n[bold blue]Generating docker-compose file...[/bold blue]")
 
-        template_dir = Path(__file__).parent.parent / "templates"
-        jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(template_dir / "docker_compose_snippets"),
-            autoescape=False,
-        )
-
-        base_compose_template = jinja_env.get_template("base.yml")
+        base_compose_template = self.docker_compose_snippets_env.get_template("base.yml")
         base_compose = base_compose_template.render(app_name=deployment_config.app_name_slug)
 
         services_info = {}
         service_snippets_list = []
+        domains_map = {d.service_name_slug: d for d in environment.domains}
         for service in deployment_config.services:
             services_info[service.name_slug] = service.model_dump(mode="json")
             service_type_slug = service.service_type.value.lower()
@@ -202,16 +209,23 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             ]:
                 continue
 
-            template = jinja_env.get_template(f"services/{service_type_slug}.yml")
+            template = self.docker_compose_snippets_env.get_template(
+                f"services/{service_type_slug}.yml"
+            )
             image_url = images[service.name_slug]
 
-            content = template.render(image_name=image_url, port=service.service_port)
+            domain_info = domains_map.get(service.name_slug)
+            domain = domain_info.domain_name if domain_info else None
+
+            content = template.render(
+                image_name=image_url, port=service.service_port, domain=domain
+            )
             service_snippets_list.append(f"# {service.name_slug}\n{content}")
         service_snippets = "\n\n".join(service_snippets_list)
 
         infra_snippets_list = []
         for infra in deployment_config.infra_deps:
-            template = jinja_env.get_template(f"{infra.provider}.yml")
+            template = self.docker_compose_snippets_env.get_template(f"{infra.provider}.yml")
 
             content = template.render(
                 version=infra.version,
@@ -313,18 +327,6 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         :type environment: DeploymentEnvironment
         :return: None
         """
-        public_services_count = sum(
-            1
-            for service in deployment_config.services
-            if service.service_type in [ServiceTypeEnum.BACKEND_API, ServiceTypeEnum.FULL_STACK]
-        )
-
-        if public_services_count > 1:
-            raise MonolithicDeploymentError(
-                "Monolithic deployment strategy supports only one public-facing service"
-                " (BACKEND_API or FULL_STACK)."
-            )
-
         print(
             f"\n[bold blue]Setting up container registry for region '{environment.region}'...[/bold"
             " blue]"
@@ -406,6 +408,30 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         )
         env_state.save(env_state_path)
         print(f"Monolithic deployment state saved to {env_state_path}")
+
+        if environment.domains:
+            print("\n[bold]Please configure the following DNS records for your domains:[/bold]")
+            for domain in environment.domains:
+                print("\n[cyan]----------------------------------------[/cyan]")
+                print("  [bold]Type:[/bold]  A Record")
+                print(f"  [bold]Name:[/bold]  {domain.domain_name}")
+                print(f"  [bold]Value:[/bold] {instance_public_ip}")
+                print("[cyan]----------------------------------------[/cyan]")
+
+            confirm_question = [
+                inquirer.Confirm(
+                    "dns_configured",
+                    message=(
+                        "Have you configured the DNS records as shown above? (This might take a few"
+                        " minutes to propagate)"
+                    ),
+                    default=True,
+                )
+            ]
+            answers = inquirer.prompt(confirm_question)
+            if not answers or not answers.get("dns_configured"):
+                print("[bold red]DNS configuration not confirmed. Aborting deployment.[/bold red]")
+                raise MonolithicDeploymentError("User did not confirm DNS configuration.")
 
         self._generate_docker_compose(deployment_config, environment, images, env_state)
 

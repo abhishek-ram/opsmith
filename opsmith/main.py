@@ -21,8 +21,10 @@ from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
+    DomainInfo,
     InfrastructureDependency,
     ServiceInfo,
+    ServiceTypeEnum,
 )
 from opsmith.utils import build_logo, get_missing_external_dependencies, slugify
 
@@ -407,8 +409,50 @@ def deploy(ctx: typer.Context):
         selected_region = new_env_answers["region"]
         selected_strategy = new_env_answers["strategy"]
 
+        domains = []
+        domain_email = None
+        services_with_domains = list(
+            filter(
+                lambda s: s.service_type
+                in [ServiceTypeEnum.BACKEND_API, ServiceTypeEnum.FULL_STACK],
+                deployment_config.services,
+            )
+        )
+
+        if services_with_domains:
+            print("\n[bold]Please provide domain information for your services:[/bold]")
+            domain_email_questions = [
+                inquirer.Text(
+                    "domain_email",
+                    message="Enter email for SSL (e.g., for Let's Encrypt)",
+                    validate=lambda _, x: "@" in x,
+                ),
+            ]
+            domain_email_answers = inquirer.prompt(domain_email_questions)
+            domain_email = domain_email_answers["domain_email"]
+
+            for service in services_with_domains:
+                domain_questions = [
+                    inquirer.Text(
+                        "domain_name",
+                        message=f"Enter domain name for service '{service.name_slug}'",
+                        validate=lambda _, x: len(x.strip()) > 0,
+                    ),
+                ]
+                domain_answers = inquirer.prompt(domain_questions)
+                domains.append(
+                    DomainInfo(
+                        service_name_slug=service.name_slug,
+                        domain_name=domain_answers["domain_name"],
+                    )
+                )
+
         new_env = DeploymentEnvironment(
-            name=selected_env_name, region=selected_region, strategy=selected_strategy
+            name=selected_env_name,
+            region=selected_region,
+            strategy=selected_strategy,
+            domains=domains,
+            domain_email=domain_email,
         )
         deployment_config.environments.append(new_env)
 
