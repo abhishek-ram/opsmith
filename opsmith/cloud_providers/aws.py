@@ -120,8 +120,8 @@ class AWSProvider(BaseCloudProvider):
                             architecture=instance_arch,
                         )
                     )
-
-        return MachineTypeList(machines=all_instances)
+        sorted_machines = sorted(all_instances, key=lambda m: (m.cpu, m.ram_gb))
+        return MachineTypeList(machines=sorted_machines)
 
     @classmethod
     def get_account_details(cls) -> AWSCloudDetail:

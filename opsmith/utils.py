@@ -5,7 +5,7 @@ import string
 import subprocess
 from typing import List
 
-from rich import Console
+from rich.console import Console
 from rich.status import Status
 from rich.text import Text
 

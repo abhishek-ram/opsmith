@@ -68,7 +68,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
     @classmethod
     def description(cls) -> str:
-        return "Deploys the entire application as a single unit."
+        return (
+            "Deploys the entire application as a single unit. Best used for experiments and hobby"
+            " applications."
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -7,11 +7,9 @@
     - "traefik.http.routers.{{ service_name_slug }}.entrypoints=websecure"
     - "traefik.http.routers.{{ service_name_slug }}.tls=true"
     - "traefik.http.routers.{{ service_name_slug }}.tls.certresolver=letsencrypt"
-    - "traefik.http.routers.{{ service_name_slug }}.middlewares=security-headers"
+    - "traefik.http.routers.{{ service_name_slug }}.middlewares=security-headers@file"
     - "traefik.http.services.{{ service_name_slug }}.loadbalancer.server.port={{ port }}"
-    - # Redirect HTTP to HTTPS
     - "traefik.http.routers.{{ service_name_slug }}-http.rule=Host(`{{ domain }}`)"
     - "traefik.http.routers.{{ service_name_slug }}-http.entrypoints=web"
-    - "traefik.http.routers.{{ service_name_slug }}-http.middlewares=redirect-to-https"
-    - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    - "traefik.http.routers.{{ service_name_slug }}-http.middlewares=redirect-to-https@file"
 

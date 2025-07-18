@@ -159,7 +159,8 @@ class GCPProvider(BaseCloudProvider):
         if not all_machines:
             raise ValueError(f"Could not find any instance types in zone {zone}.")
 
-        return MachineTypeList(machines=all_machines)
+        sorted_machines = sorted(all_machines, key=lambda m: (m.cpu, m.ram_gb))
+        return MachineTypeList(machines=sorted_machines)
 
     @classmethod
     def get_account_details(cls) -> GCPCloudDetail:
