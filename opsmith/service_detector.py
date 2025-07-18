@@ -18,8 +18,8 @@ from opsmith.prompts import (
 )
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
-from opsmith.spinner import WaitingSpinner
 from opsmith.types import ServiceInfo, ServiceList, ServiceTypeEnum
+from opsmith.utils import WaitingSpinner
 
 MAX_DOCKERFILE_GENERATE_ATTEMPTS = 5
 
@@ -84,7 +84,7 @@ class ServiceDetector:
         )
 
         print("Calling AI agent to analyse the repo and determine the services...")
-        with WaitingSpinner(text="Waiting for the LLM", delay=0.1):
+        with WaitingSpinner(text="Waiting for the LLM"):
             run_result = self.agent.run_sync(prompt, output_type=ServiceList, deps=self.agent_deps)
 
         return run_result.output
@@ -130,7 +130,7 @@ class ServiceDetector:
                 existing_dockerfile_content=existing_dockerfile_content,
                 validation_feedback=validation_feedback,
             )
-            with WaitingSpinner(text="Waiting for the LLM to generate the Dockerfile", delay=0.1):
+            with WaitingSpinner(text="Waiting for the LLM to generate the Dockerfile"):
                 response = self.agent.run_sync(
                     prompt,
                     deps=self.agent_deps,
@@ -141,7 +141,7 @@ class ServiceDetector:
                 is_final = response.output.is_final
                 messages = response.new_messages()
 
-            with WaitingSpinner(text="Validating generated Dockerfile", delay=0.1):
+            with WaitingSpinner(text="Validating generated Dockerfile"):
                 validation_error = self._validate_dockerfile(dockerfile_content)
 
             if validation_error is None:

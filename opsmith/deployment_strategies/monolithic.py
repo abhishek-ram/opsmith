@@ -22,7 +22,6 @@ from opsmith.prompts import (
     DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE,
     MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE,
 )
-from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
@@ -30,6 +29,7 @@ from opsmith.types import (
     ServiceTypeEnum,
     VirtualMachineState,
 )
+from opsmith.utils import WaitingSpinner
 
 
 class DockerComposeLogValidation(BaseModel):
@@ -246,7 +246,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 if attempt == 0
                 else "Waiting for LLM to correct docker-compose.yml"
             )
-            with WaitingSpinner(text=spinner_text, delay=0.1):
+            with WaitingSpinner(text=spinner_text):
                 docker_compose_response = self.agent.run_sync(
                     prompt,
                     output_type=DockerComposeContent,
@@ -274,7 +274,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 confirmed_env_content,
             )
 
-            with WaitingSpinner("Validating deployment logs with LLM...", delay=0.1):
+            with WaitingSpinner("Validating deployment logs with LLM..."):
                 log_validation_prompt = DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE.format(
                     container_logs=deployment_output
                 )
@@ -331,7 +331,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
 
-        with WaitingSpinner(text="Fetching available instance types", delay=0.1):
+        with WaitingSpinner(text="Fetching available instance types"):
             machine_type_list = cloud_provider.get_instance_types(environment.region)
 
         services_yaml = yaml.dump([s.model_dump(mode="json") for s in deployment_config.services])
@@ -346,7 +346,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             machine_types_yaml=machine_types_yaml,
         )
 
-        with WaitingSpinner(text="Waiting for LLM to select machine types", delay=0.1):
+        with WaitingSpinner(text="Waiting for LLM to select machine types"):
             response = self.agent.run_sync(
                 prompt, output_type=MachineTypeList, deps=self.agent_deps
             )

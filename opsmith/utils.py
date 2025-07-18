@@ -5,6 +5,8 @@ import string
 import subprocess
 from typing import List
 
+from rich import Console
+from rich.status import Status
 from rich.text import Text
 
 
@@ -87,3 +89,26 @@ def build_logo() -> Text:
         " ██████  ██      ███████ ██      ██ ██    ██    ██   ██\n\n", style="bold cyan"
     )
     return ascii_art_logo
+
+
+class WaitingSpinner:
+    """A wrapper for rich.console.Status that can be used as a context manager."""
+
+    def __init__(self, text: str = "Waiting..."):
+        self.console = Console()
+        self.status: Status = self.console.status(text)
+
+    def start(self):
+        """Start the spinner."""
+        self.status.start()
+
+    def stop(self):
+        """Stop the spinner."""
+        self.status.stop()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()

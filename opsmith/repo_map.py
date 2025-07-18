@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from opsmith.constants import ROOT_IMPORTANT_FILES
 from opsmith.git_repo import GitRepo
-from opsmith.spinner import WaitingSpinner
+from opsmith.utils import WaitingSpinner
 
 
 class Tag(NamedTuple):
@@ -159,12 +159,11 @@ class RepoMap:
         current_max_map_tokens = self.max_map_tokens
 
         try:
-            with WaitingSpinner(text=REPO_MAP_MESSAGE, delay=0.1) as spinner_obj:
+            with WaitingSpinner(text=REPO_MAP_MESSAGE):
                 # Progress within get_tags_map will use spinner.step or tqdm
                 files_listing = self.get_tags_map(
                     all_filenames_abs=all_tracked_files_abs_str,
                     max_tokens=current_max_map_tokens,
-                    progress_callback=spinner_obj.spinner.step,
                 )
         except RecursionError:
             typer.echo(

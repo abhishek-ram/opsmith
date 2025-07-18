@@ -17,7 +17,6 @@ from opsmith.models import MODEL_REGISTRY, BaseAiModel
 from opsmith.repo_map import RepoMap
 from opsmith.service_detector import ServiceDetector
 from opsmith.settings import settings
-from opsmith.spinner import WaitingSpinner
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
@@ -26,7 +25,12 @@ from opsmith.types import (
     ServiceInfo,
     ServiceTypeEnum,
 )
-from opsmith.utils import build_logo, get_missing_external_dependencies, slugify
+from opsmith.utils import (
+    WaitingSpinner,
+    build_logo,
+    get_missing_external_dependencies,
+    slugify,
+)
 
 app = typer.Typer()
 
@@ -357,7 +361,7 @@ def deploy(ctx: typer.Context):
 
     if selected_env_name == "<Create a new environment>":
         # Get cloud provider to fetch regions
-        with WaitingSpinner(text="Fetching regions from your cloud provider", delay=0.1):
+        with WaitingSpinner(text="Fetching regions from your cloud provider"):
             try:
                 provider_instance = deployment_config.cloud_provider_instance
                 regions = provider_instance.get_regions()
