@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Optional, Type
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from rich import print
 
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
@@ -105,17 +105,34 @@ class ServiceInfo(BaseModel):
     service_port: Optional[int] = Field(
         None, description="The port the service listens on, if applicable."
     )
-    build_tool: Optional[str] = Field(
+    build_cmd: Optional[str] = Field(
         None,
         description=(
-            "The build tool used for the service, if identifiable (e.g., 'maven', 'gradle', 'npm',"
-            " 'webpack')."
+            "The command to build the service, if applicable (e.g., 'npm run build'). This is"
+            " required for FRONTEND services."
+        ),
+    )
+    build_dir: Optional[str] = Field(
+        None,
+        description=(
+            "The directory where build artifacts are located, relative to the repository root"
+            " (e.g., 'frontend/dist'). This is required for FRONTEND services."
         ),
     )
     env_vars: List[EnvVarConfig] = Field(
         default_factory=list,
         description="A list of environment variable configurations required by the service.",
     )
+
+    @model_validator(mode="after")
+    def check_frontend_build_fields(self) -> "ServiceInfo":
+        """Validate that build_cmd and build_dir are present for FRONTEND services."""
+        if self.service_type == ServiceTypeEnum.FRONTEND:
+            if not self.build_cmd:
+                raise ValueError("'build_cmd' is required for FRONTEND service type")
+            if not self.build_dir:
+                raise ValueError("'build_dir' is required for FRONTEND service type")
+        return self
 
     @property
     def name_slug(self) -> str:

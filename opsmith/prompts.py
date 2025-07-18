@@ -37,8 +37,9 @@ For each service, determine:
 3.  `service_type`: The type of the service. Must be one of: "backend_api", "backend_worker", "frontend", "full_stack".
 4.  `framework`: The primary framework or library used, if any (e.g., "django", "react", "spring boot", "celery").
 5.  `service_port`: The port number the service listens on, if applicable (e.g., 80, 8000, 3000).
-6.  `build_tool`: The build tool used for the service, if identifiable (e.g., "maven", "gradle", "npm", "webpack", "pip", "poetry").
-7.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
+6.  `build_cmd`: The command to build the service, if applicable (e.g., 'npm run build'). This is required for 'frontend' service type.
+7.  `build_dir`: The directory where build artifacts are located, relative to the repository root (e.g., 'frontend/dist'). This is required for 'frontend' service type.
+8.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
     *   `key`: The name of the environment variable.
     *   `is_secret`: A boolean indicating if the variable should be treated as a secret (e.g., contains API keys, passwords, or other sensitive information).
     *   `default_value`: The default value for the variable, if one is provided in the code.
