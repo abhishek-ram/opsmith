@@ -31,44 +31,18 @@ class MachineTypeList(BaseModel):
 
     machines: List[MachineType]
 
-    def find_instance_options(
-        self, cpu: int, ram_gb: float
-    ) -> Tuple[List[Tuple[str, "MachineType"]], Optional["MachineType"]]:
+    def as_options(self) -> Tuple[List[Tuple[str, "MachineType"]], Optional["MachineType"]]:
         """
-        Finds suitable instance options from the list of machines.
+        Formats the machine list into options for inquirer.
         It returns a list of choices for inquirer and the recommended machine.
         """
-        sorted_machines = sorted(self.machines, key=lambda m: (m.cpu, m.ram_gb))
-
-        recommended_idx = -1
-        for i, machine in enumerate(sorted_machines):
-            if machine.cpu >= cpu and machine.ram_gb >= ram_gb:
-                recommended_idx = i
-                break
-
-        if recommended_idx == -1:
-            error_message = "Could not find any suitable instance type for the given requirements."
-            raise ValueError(error_message)
-
-        instance_options = []
-        # Add smaller instance if available
-        if recommended_idx > 0:
-            smaller_instance = sorted_machines[recommended_idx - 1]
-            instance_options.append(smaller_instance)
-
-        # Add recommended instance
-        recommended_instance = sorted_machines[recommended_idx]
-        recommended_instance.is_recommended = True
-        instance_options.append(recommended_instance)
-
-        # Add larger instance if available
-        if recommended_idx < len(sorted_machines) - 1:
-            larger_instance = sorted_machines[recommended_idx + 1]
-            instance_options.append(larger_instance)
-
         choices = []
         recommended_machine_choice = None
-        for option in instance_options:
+
+        # sort machines by cpu and ram to have a consistent order for user
+        sorted_machines = sorted(self.machines, key=lambda m: (m.cpu, m.ram_gb))
+
+        for option in sorted_machines:
             choice_text = (
                 f"{option.name} ({option.cpu} vCPUs, {option.ram_gb} GB RAM,"
                 f" {option.architecture.value})"

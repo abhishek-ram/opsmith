@@ -12,7 +12,7 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 from rich import print
 
-from opsmith.cloud_providers.base import MachineType
+from opsmith.cloud_providers.base import MachineType, MachineTypeList
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
 from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
@@ -30,13 +30,6 @@ from opsmith.types import (
     ServiceTypeEnum,
     VirtualMachineState,
 )
-
-
-class MachineRequirements(BaseModel):
-    """Describes the machine requirements for a monolithic deployment."""
-
-    cpu: int = Field(..., description="The number of virtual CPU cores required.")
-    ram_gb: int = Field(..., description="The amount of RAM in gigabytes required.")
 
 
 class DockerComposeLogValidation(BaseModel):
@@ -334,39 +327,32 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         registry_url = self._setup_container_registry(deployment_config, environment)
         images = self._build_and_push_images(deployment_config, environment, registry_url)
 
-        print(
-            "\n[bold blue]Estimating resource requirements for monolithic deployment...[/bold blue]"
-        )
-
-        services_yaml = yaml.dump([s.model_dump(mode="json") for s in deployment_config.services])
-        infra_deps_yaml = yaml.dump(
-            [i.model_dump(mode="json") for i in deployment_config.infra_deps]
-        )
-
-        prompt = MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE.format(
-            services_yaml=services_yaml, infra_deps_yaml=infra_deps_yaml
-        )
-
-        with WaitingSpinner(text="Waiting for LLM to estimate resources", delay=0.1):
-            response = self.agent.run_sync(
-                prompt, output_type=MachineRequirements, deps=self.agent_deps
-            )
-
-        machine_reqs = response.output
-        print(
-            f"[bold green]Estimated requirements: {machine_reqs.cpu} vCPUs,"
-            f" {machine_reqs.ram_gb} GB RAM.[/bold green]"
-        )
-
         cloud_provider = deployment_config.cloud_provider_instance
 
         print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
 
         with WaitingSpinner(text="Fetching available instance types", delay=0.1):
             machine_type_list = cloud_provider.get_instance_types(environment.region)
-            choices, recommended_instance = machine_type_list.find_instance_options(
-                machine_reqs.cpu, machine_reqs.ram_gb
+
+        services_yaml = yaml.dump([s.model_dump(mode="json") for s in deployment_config.services])
+        infra_deps_yaml = yaml.dump(
+            [i.model_dump(mode="json") for i in deployment_config.infra_deps]
+        )
+        machine_types_yaml = yaml.dump(machine_type_list.model_dump(mode="json"))
+
+        prompt = MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE.format(
+            services_yaml=services_yaml,
+            infra_deps_yaml=infra_deps_yaml,
+            machine_types_yaml=machine_types_yaml,
+        )
+
+        with WaitingSpinner(text="Waiting for LLM to select machine types", delay=0.1):
+            response = self.agent.run_sync(
+                prompt, output_type=MachineTypeList, deps=self.agent_deps
             )
+
+        suggested_machine_types = response.output
+        choices, recommended_instance = suggested_machine_types.as_options()
 
         if not choices:
             raise MonolithicDeploymentError("No suitable instance types found.")

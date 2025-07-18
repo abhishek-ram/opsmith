@@ -108,8 +108,7 @@ set `is_final` to `True` in your response.
 """
 
 MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE = """
-You are an expert DevOps engineer. Your task is to estimate the resource requirements
-for deploying a monolithic application for hobby/experimental purposes.
+You are an expert DevOps engineer. Your task is to select a suitable virtual machine for deploying a monolithic application for hobby/experimental purposes.
 
 The application consists of the following services:
 {services_yaml}
@@ -117,11 +116,18 @@ The application consists of the following services:
 And has the following infrastructure dependencies:
 {infra_deps_yaml}
 
-Based on this information, estimate the smallest possible resources required to run all services
-and infrastructure dependencies together on a single machine, prioritizing low cost over performance.
-Provide the estimated number of virtual CPU cores and the amount of RAM in gigabytes.
+Below is a list of available machine types from the cloud provider:
+{machine_types_yaml}
 
-Return the information as a `MachineRequirements` JSON object.
+Based on this information, analyze the services and infrastructure dependencies to recommend a suitable machine type from the list.
+Your selection should prioritize low cost over performance, but still be sufficient to run the application.
+
+Your response should be a list of machine types. This list must include:
+1. One recommended machine type. Set `is_recommended` to `true` for this machine. This should be the most cost-effective option that meets the application's needs.
+2. At most two smaller, cheaper machine types, if available.
+3. At most two larger, more powerful machine types, if available.
+
+Return the information as a `MachineTypeList` JSON object. The `machines` field should contain your selected list of machine types.
 """
 
 DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE = """
