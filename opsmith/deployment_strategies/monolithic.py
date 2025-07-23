@@ -810,10 +810,17 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     "domain_name": cdn_state.domain_name,
                     "bucket_name": cdn_state.bucket_name,
                 }
-                if cloud_provider.name().lower() == "aws":
-                    variables_p2["certificate_arn"] = cdn_state.certificate_arn
+                # if cloud_provider.name().lower() == "aws":
+                variables_p2["certificate_arn"] = (
+                    "arn:aws:acm:us-east-1:666347638672:certificate/02968845-ada8-4fc7-9f80-f222a719d9ff"
+                )
                 env_vars = cloud_provider.provider_detail.model_dump(mode="json")
                 tf_p2.destroy(variables_p2, env_vars=env_vars)
+
+            # Delete the bucket contents
+            self._cleanup_cloud_storage(
+                environment, cdn_state.service_name_slug, cloud_provider, cdn_state.bucket_name
+            )
 
             # Destroy part 1
             infra_path_p1 = (
@@ -827,7 +834,6 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             if infra_path_p1.exists():
                 tf_p1 = TerraformProvisioner(working_dir=infra_path_p1)
                 variables_p1 = {
-                    "app_name": deployment_config.app_name_slug,
                     "region": environment.region,
                     "domain_name": cdn_state.domain_name,
                 }

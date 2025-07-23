@@ -1,0 +1,24 @@
+- name: Empty S3 Bucket
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  tasks:
+    - name: Create empty directory for sync
+      ansible.builtin.tempfile:
+        state: directory
+      register: empty_dir_for_sync
+
+    - name: Delete all files from S3 bucket
+      community.aws.s3_sync:
+        bucket: "{{ bucket_name }}"
+        file_root: "{{ empty_dir_for_sync.path }}/"
+        delete: true
+        mode: push
+        region: "{{ region }}"
+
+    - name: Remove temporary directory
+      ansible.builtin.file:
+        path: "{{ empty_dir_for_sync.path }}"
+        state: absent
+      when: empty_dir_for_sync.path is defined

@@ -412,6 +412,34 @@ class BaseDeploymentStrategy(abc.ABC):
             for file_content in fetched_files
         ]
 
+    def _cleanup_cloud_storage(
+        self,
+        environment: DeploymentEnvironment,
+        service_name_slug: str,
+        cloud_provider: BaseCloudProvider,
+        bucket_name: str,
+    ):
+        print(f"\n[bold blue]Emptying bucket '{bucket_name}' before deletion...[/bold blue]")
+        delete_bucket_path = (
+            self.deployments_path
+            / "environments"
+            / environment.name
+            / "cloud_storage_cleanup"
+            / service_name_slug
+        )
+        delete_bucket_path.mkdir(parents=True, exist_ok=True)
+
+        ansible_runner = AnsibleProvisioner(working_dir=delete_bucket_path)
+        provider_name = cloud_provider.name().lower()
+        ansible_runner.copy_template("cloud_storage_cleanup", provider_name)
+
+        extra_vars = {
+            "bucket_name": bucket_name,
+            "region": environment.region,
+        }
+        ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
+        print(f"[bold green]Bucket '{bucket_name}' emptied successfully.[/bold green]")
+
     @abc.abstractmethod
     def deploy(
         self,
