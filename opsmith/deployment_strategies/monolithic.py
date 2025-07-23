@@ -2,6 +2,7 @@ import base64
 import json
 import shutil
 import subprocess
+import time
 from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -384,30 +385,72 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
         print(f"[bold green]Assets for '{service.name_slug}' deployed successfully.[/bold green]")
 
-    def _create_content_delivery_network(
+    def _create_frontend_bucket_cert(
+        self,
+        environment: DeploymentEnvironment,
+        service_info: ServiceInfo,
+        domain_info: DomainInfo,
+        cloud_provider: BaseCloudProvider,
+    ):
+        """Creates CDN part 1 (bucket and cert) and cloud storage for a frontend service."""
+        print(
+            "\n[bold blue]Creating CDN part 1 (bucket, cert) for service"
+            f" '{service_info.name_slug}'  '({domain_info.domain_name})'...[/bold blue]"
+        )
+        infra_path = (
+            self.deployments_path
+            / "environments"
+            / environment.name
+            / "frontend_bucket_cert"
+            / service_info.name_slug
+        )
+        infra_path.mkdir(parents=True, exist_ok=True)
+
+        tf = TerraformProvisioner(working_dir=infra_path)
+        tf.copy_template("frontend_bucket_cert", cloud_provider.name().lower())
+
+        variables = {
+            "region": environment.region,
+            "domain_name": domain_info.domain_name,
+        }
+
+        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+        tf.init_and_apply(variables, env_vars=env_vars)
+        outputs = tf.get_output()
+
+        dns_records_json = outputs.get("dns_records")
+        if dns_records_json:
+            self._confirm_dns_records(json.loads(dns_records_json))
+            print("\n[bold blue]Waiting 15 seconds for DNS propagation...[/bold blue]")
+            time.sleep(15)
+
+        return outputs
+
+    def _create_frontend_cdn(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
         service_info: ServiceInfo,
         domain_info: DomainInfo,
         cloud_provider: BaseCloudProvider,
+        cdn_part1_outputs: dict,
     ):
-        """Creates CDN and cloud storage for a frontend service."""
+        """Creates CDN part 2 (distribution) for a frontend service."""
         print(
-            f"\n[bold blue]Creating content delivery network for service '{service_info.name_slug}'"
-            f"  '({domain_info.domain_name})'...[/bold blue]"
+            "\n[bold blue]Creating CDN part 2 (distribution) for service"
+            f" '{service_info.name_slug}'  '({domain_info.domain_name})'...[/bold blue]"
         )
         infra_path = (
             self.deployments_path
             / "environments"
             / environment.name
-            / "content_delivery_network"
+            / "frontend_cdn"
             / service_info.name_slug
         )
         infra_path.mkdir(parents=True, exist_ok=True)
 
         tf = TerraformProvisioner(working_dir=infra_path)
-        tf.copy_template("content_delivery_network", cloud_provider.name().lower())
+        tf.copy_template("frontend_cdn", cloud_provider.name().lower())
 
         variables = {
             "app_name": deployment_config.app_name_slug,
@@ -416,8 +459,14 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         }
 
         env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+        env_vars.update(cdn_part1_outputs)
         tf.init_and_apply(variables, env_vars=env_vars)
         outputs = tf.get_output()
+
+        dns_records_json = outputs.get("dns_records")
+        if dns_records_json:
+            self._confirm_dns_records(json.loads(dns_records_json))
+
         return outputs
 
     def _select_virtual_machine_type(
@@ -540,9 +589,19 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     )
                     continue
 
-                cdn_outputs = self._create_content_delivery_network(
-                    deployment_config, environment, service, domain_info, cloud_provider
+                cdn_part1_outputs = self._create_frontend_bucket_cert(
+                    environment, service, domain_info, cloud_provider
                 )
+
+                cdn_part2_outputs = self._create_frontend_cdn(
+                    deployment_config,
+                    environment,
+                    service,
+                    domain_info,
+                    cloud_provider,
+                    cdn_part1_outputs,
+                )
+                cdn_outputs = {**cdn_part1_outputs, **cdn_part2_outputs}
 
                 build_env_vars = self._prompt_for_build_env_vars(service)
                 cdn_state = FrontendCDNState(
@@ -557,15 +616,15 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 )
                 env_state.frontend_cdn.append(cdn_state)
 
-                dns_records_json = cdn_outputs.get("dns_records")
-                if dns_records_json:
-                    self._confirm_dns_records(json.loads(dns_records_json))
-
                 self._build_and_upload_frontend_assets(
                     service,
                     cloud_provider,
                     environment,
                     cdn_state,
+                )
+                print(
+                    "\n[bold green]Your website is available at:"
+                    f" https://{domain_info.domain_name}[/bold green]"
                 )
 
         if other_services:
@@ -618,6 +677,12 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 )
             self._confirm_dns_records(dns_records)
 
+            for domain in environment.get_domains_for_services(other_services):
+                print(
+                    "\n[bold green]Your website is available at:"
+                    f" https://{domain.domain_name}[/bold green]"
+                )
+
             env_state.registry_url = registry_url
             env_state.virtual_machine = virtual_machine_state
             self._generate_docker_compose(deployment_config, environment, images, env_state)
@@ -665,6 +730,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     cloud_provider,
                     environment,
                     cdn_state,
+                )
+                print(
+                    "\n[bold green]Your website is available at:"
+                    f" https://{cdn_state.domain_name}[/bold green]"
                 )
 
         # Release other services
@@ -725,23 +794,45 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 "\n[bold blue]Destroying content delivery network for service"
                 f" '{cdn_state.service_name_slug}'...[/bold blue]"
             )
-            infra_path = (
+            # Destroy part 2 first
+            infra_path_p2 = (
                 self.deployments_path
                 / "environments"
                 / environment.name
-                / "content_delivery_network"
+                / "frontend_cdn"
+                / cdn_state.service_name_slug
+            )
+            if infra_path_p2.exists():
+                tf_p2 = TerraformProvisioner(working_dir=infra_path_p2)
+                variables_p2 = {
+                    "app_name": deployment_config.app_name_slug,
+                    "region": environment.region,
+                    "domain_name": cdn_state.domain_name,
+                    "bucket_name": cdn_state.bucket_name,
+                }
+                if cloud_provider.name().lower() == "aws":
+                    variables_p2["certificate_arn"] = cdn_state.certificate_arn
+                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                tf_p2.destroy(variables_p2, env_vars=env_vars)
+
+            # Destroy part 1
+            infra_path_p1 = (
+                self.deployments_path
+                / "environments"
+                / environment.name
+                / "frontend_bucket_cert"
                 / cdn_state.service_name_slug
             )
 
-            if infra_path.exists():
-                tf = TerraformProvisioner(working_dir=infra_path)
-                variables = {
+            if infra_path_p1.exists():
+                tf_p1 = TerraformProvisioner(working_dir=infra_path_p1)
+                variables_p1 = {
                     "app_name": deployment_config.app_name_slug,
                     "region": environment.region,
                     "domain_name": cdn_state.domain_name,
                 }
                 env_vars = cloud_provider.provider_detail.model_dump(mode="json")
-                tf.destroy(variables, env_vars=env_vars)
+                tf_p1.destroy(variables_p1, env_vars=env_vars)
             else:
                 print(
                     "[bold yellow]No content delivery network infrastructure found for"

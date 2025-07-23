@@ -2,23 +2,8 @@ provider "aws" {
   region = var.region
 }
 
-# Provider for us-east-1 (required for CloudFront certificates)
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
-resource "aws_s3_bucket" "frontend_bucket" {
-  bucket = var.domain_name
-}
-
-resource "aws_s3_bucket_public_access_block" "this" {
-  bucket = aws_s3_bucket.frontend_bucket.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+data "aws_s3_bucket" "frontend_bucket" {
+  bucket = var.bucket_name
 }
 
 resource "aws_cloudfront_origin_access_control" "this" {
@@ -30,7 +15,7 @@ resource "aws_cloudfront_origin_access_control" "this" {
 }
 
 resource "aws_s3_bucket_policy" "frontend_bucket_policy" {
-  bucket = aws_s3_bucket.frontend_bucket.id
+  bucket = data.aws_s3_bucket.frontend_bucket.id
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
@@ -38,7 +23,7 @@ resource "aws_s3_bucket_policy" "frontend_bucket_policy" {
         Effect    = "Allow",
         Principal = { Service = "cloudfront.amazonaws.com" },
         Action    = "s3:GetObject",
-        Resource  = "${aws_s3_bucket.frontend_bucket.arn}/*",
+        Resource  = "${data.aws_s3_bucket.frontend_bucket.arn}/*",
         Condition = {
           StringEquals = {
             "AWS:SourceArn" = aws_cloudfront_distribution.s3_distribution.arn
@@ -49,19 +34,9 @@ resource "aws_s3_bucket_policy" "frontend_bucket_policy" {
   })
 }
 
-resource "aws_acm_certificate" "cert" {
-  domain_name       = var.domain_name
-  validation_method = "DNS"
-  provider = aws.us_east_1
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
 resource "aws_cloudfront_distribution" "s3_distribution" {
   origin {
-    domain_name              = aws_s3_bucket.frontend_bucket.bucket_regional_domain_name
+    domain_name              = data.aws_s3_bucket.frontend_bucket.bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.this.id
     origin_id                = "S3-${var.domain_name}"
   }
@@ -101,7 +76,7 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
   }
 
   viewer_certificate {
-    acm_certificate_arn = aws_acm_certificate.cert.arn
+    acm_certificate_arn = var.certificate_arn
     ssl_support_method  = "sni-only"
   }
 
