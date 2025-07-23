@@ -8,6 +8,11 @@ output "cdn_ip_address" {
   value       = google_compute_global_forwarding_rule.forwarding_rule.ip_address
 }
 
+output "cdn_url_map" {
+  description = "The name of the URL map for the CDN."
+  value       = basename(google_compute_target_https_proxy.https_proxy.url_map)
+}
+
 output "dns_records" {
   description = "DNS records to be configured."
   value = jsonencode([

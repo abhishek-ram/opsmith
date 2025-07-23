@@ -37,13 +37,6 @@ http:
 
     security-headers:
       headers:
-        accessControlAllowMethods:
-          - GET
-          - OPTIONS
-          - PUT
-          - POST
-          - DELETE
-        accessControlMaxAge: 100
         hostsProxyHeaders:
           - "X-Forwarded-Host"
         referrerPolicy: "same-origin"

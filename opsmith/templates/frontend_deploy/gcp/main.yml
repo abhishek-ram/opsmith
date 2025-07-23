@@ -5,7 +5,7 @@
 
   tasks:
     - name: Run build command
-      ansible.builtin.command: "{{ build_cmd }}"
+      ansible.builtin.shell: "{{ build_cmd }}"
       args:
         chdir: "{{ project_root }}"
       environment: "{{ {'PATH': (project_root ~ '/' ~ build_path ~ ':' if build_path else '') ~ lookup('env', 'PATH'), 'HOME': lookup('env', 'HOME')} | combine(build_env_vars | default({})) }}"
@@ -16,3 +16,10 @@
         source: "{{ project_root }}/{{ build_dir }}/"
         delete: true
         recursion: true
+
+    - name: Invalidate CDN cache
+      google.cloud.gcp_compute_cache_invalidation:
+        url_map: "{{ cdn_url_map }}"
+        path: "/*"
+        state: present
+      when: cdn_url_map is defined and cdn_url_map

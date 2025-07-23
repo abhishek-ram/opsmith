@@ -273,6 +273,10 @@ class FrontendCDNState(BaseModel):
     bucket_name: str = Field(..., description="The name of the cloud storage bucket.")
     cdn_domain_name: Optional[str] = Field(None, description="The domain name of the CDN.")
     cdn_ip_address: Optional[str] = Field(None, description="The IP address of the CDN.")
+    cdn_distribution_id: Optional[str] = Field(
+        None, description="The ID of the AWS CloudFront distribution."
+    )
+    cdn_url_map: Optional[str] = Field(None, description="The name of the GCP URL map.")
     build_env_vars: dict = Field(
         default_factory=dict,
         description="Build-time environment variables for the service, keyed by service slug.",

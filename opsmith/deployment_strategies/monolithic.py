@@ -349,10 +349,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     def _build_and_upload_frontend_assets(
         self,
         service: ServiceInfo,
-        bucket_name: str,
         cloud_provider: BaseCloudProvider,
         environment: DeploymentEnvironment,
-        build_env_vars: dict,
+        cdn_state: FrontendCDNState,
     ):
         """Builds frontend assets and uploads them to cloud storage."""
         print(
@@ -375,10 +374,12 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             "build_cmd": service.build_cmd,
             "build_dir": service.build_dir,
             "build_path": service.build_path,
-            "bucket_name": bucket_name,
+            "bucket_name": cdn_state.bucket_name,
             "project_root": self.src_dir,
             "region": environment.region,
-            "build_env_vars": build_env_vars,
+            "build_env_vars": cdn_state.build_env_vars,
+            "cdn_distribution_id": cdn_state.cdn_distribution_id,
+            "cdn_url_map": cdn_state.cdn_url_map,
         }
         ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
         print(f"[bold green]Assets for '{service.name_slug}' deployed successfully.[/bold green]")
@@ -550,6 +551,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     bucket_name=cdn_outputs.get("bucket_name"),
                     cdn_domain_name=cdn_outputs.get("cdn_domain_name"),
                     cdn_ip_address=cdn_outputs.get("cdn_ip_address"),
+                    cdn_distribution_id=cdn_outputs.get("cdn_distribution_id"),
+                    cdn_url_map=cdn_outputs.get("cdn_url_map"),
                     build_env_vars=build_env_vars,
                 )
                 env_state.frontend_cdn.append(cdn_state)
@@ -560,10 +563,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
                 self._build_and_upload_frontend_assets(
                     service,
-                    cdn_state.bucket_name,
                     cloud_provider,
                     environment,
-                    cdn_state.build_env_vars,
+                    cdn_state,
                 )
 
         if other_services:
@@ -631,23 +633,72 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         """Deploys the application."""
         env_state_path = self._get_env_state_path(environment.name)
         env_state = MonolithicDeploymentState.load(env_state_path)
+        cloud_provider = deployment_config.cloud_provider_instance
+        state_updated = False
 
-        self._build_and_push_images(deployment_config, environment, env_state.registry_url)
+        # Release frontend services
+        frontend_services = [
+            s for s in deployment_config.services if s.service_type == ServiceTypeEnum.FRONTEND
+        ]
+        if frontend_services:
+            print("\n[bold blue]Releasing frontend services...[/bold blue]")
+            cdn_state_map = {cdn.service_name_slug: cdn for cdn in env_state.frontend_cdn}
 
-        env_file_path = f"/home/{env_state.virtual_machine.user}/app/.env"
-        fetched_files = self._fetch_remote_deployment_files(
-            environment,
-            env_state.virtual_machine.public_ip,
-            env_state.virtual_machine.user,
-            [env_file_path],
-        )
+            for service in frontend_services:
+                cdn_state = cdn_state_map.get(service.name_slug)
+                if not cdn_state:
+                    print(
+                        "[bold yellow]No existing CDN state found for frontend service"
+                        f" '{service.name_slug}'. Skipping release.[/bold yellow]"
+                    )
+                    continue
 
-        self._deploy_docker_compose(
-            deployment_config,
-            environment,
-            env_state,
-            fetched_files[0],
-        )
+                build_env_vars = self._prompt_for_build_env_vars(
+                    service, existing_vars=cdn_state.build_env_vars
+                )
+                if cdn_state.build_env_vars != build_env_vars:
+                    cdn_state.build_env_vars = build_env_vars
+                    state_updated = True
+
+                self._build_and_upload_frontend_assets(
+                    service,
+                    cloud_provider,
+                    environment,
+                    cdn_state,
+                )
+
+        # Release other services
+        other_services = [
+            s for s in deployment_config.services if s.service_type != ServiceTypeEnum.FRONTEND
+        ]
+
+        if other_services:
+            if env_state.virtual_machine:
+                self._build_and_push_images(deployment_config, environment, env_state.registry_url)
+
+                env_file_path = f"/home/{env_state.virtual_machine.user}/app/.env"
+                fetched_files = self._fetch_remote_deployment_files(
+                    environment,
+                    env_state.virtual_machine.public_ip,
+                    env_state.virtual_machine.user,
+                    [env_file_path],
+                )
+
+                self._deploy_docker_compose(
+                    deployment_config,
+                    environment,
+                    env_state,
+                    fetched_files[0],
+                )
+            else:
+                # This can happen if only frontend was deployed
+                print(
+                    "[bold yellow]No virtual machine provisioned for this environment. Skipping"
+                    " release of other services.[/bold yellow]"
+                )
+
+        if state_updated:
+            env_state.save(env_state_path)
 
     def destroy(
         self,
@@ -656,38 +707,69 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     ):
         """Destroys the environment's infrastructure."""
         print("\n[bold blue]Destroying monolithic environment...[/bold blue]")
+        cloud_provider = deployment_config.cloud_provider_instance
+
+        env_state_path = self._get_env_state_path(environment.name)
+        if not env_state_path.exists():
+            print(
+                f"[bold yellow]No state file found for environment '{environment.name}'. Skipping"
+                " infrastructure destruction.[/bold yellow]"
+            )
+            return
+
+        env_state = MonolithicDeploymentState.load(env_state_path)
+
+        # Destroy frontend CDNs
+        for cdn_state in env_state.frontend_cdn:
+            print(
+                "\n[bold blue]Destroying content delivery network for service"
+                f" '{cdn_state.service_name_slug}'...[/bold blue]"
+            )
+            infra_path = (
+                self.deployments_path
+                / "environments"
+                / environment.name
+                / "content_delivery_network"
+                / cdn_state.service_name_slug
+            )
+
+            if infra_path.exists():
+                tf = TerraformProvisioner(working_dir=infra_path)
+                variables = {
+                    "app_name": deployment_config.app_name_slug,
+                    "region": environment.region,
+                    "domain_name": cdn_state.domain_name,
+                }
+                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                tf.destroy(variables, env_vars=env_vars)
+            else:
+                print(
+                    "[bold yellow]No content delivery network infrastructure found for"
+                    f" service '{cdn_state.service_name_slug}'. Skipping destruction.[/bold"
+                    " yellow]"
+                )
 
         # Destroy virtual machine
-        cloud_provider = deployment_config.cloud_provider_instance
-        infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
-
-        if infra_path.exists():
-            env_state_path = self._get_env_state_path(environment.name)
-            env_state = MonolithicDeploymentState.load(env_state_path)
-            if not env_state:
-                print(
-                    f"[bold red]Setup for environment '{environment.name}' is missing or"
-                    " incomplete. Cannot proceed with destruction.[/bold red]"
-                )
-                raise MonolithicDeploymentError(
-                    f"Incomplete config for {environment.name}, cannot destroy."
-                )
-
-            tf = TerraformProvisioner(working_dir=infra_path)
-
-            variables = {
-                "app_name": deployment_config.app_name_slug,
-                "instance_type": env_state.virtual_machine.instance_type,
-                "region": environment.region,
-                "ssh_pub_key": self._get_ssh_public_key(),
-            }
-            env_vars = cloud_provider.provider_detail.model_dump(mode="json")
-            tf.destroy(variables, env_vars=env_vars)
-        else:
-            print(
-                "[bold yellow]No virtual machine infrastructure found for environment"
-                f" '{environment.name}'. Skipping VM destruction.[/bold yellow]"
+        if env_state.virtual_machine:
+            infra_path = (
+                self.deployments_path / "environments" / environment.name / "virtual_machine"
             )
+            if infra_path.exists():
+                tf = TerraformProvisioner(working_dir=infra_path)
+
+                variables = {
+                    "app_name": deployment_config.app_name_slug,
+                    "instance_type": env_state.virtual_machine.instance_type,
+                    "region": environment.region,
+                    "ssh_pub_key": self._get_ssh_public_key(),
+                }
+                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                tf.destroy(variables, env_vars=env_vars)
+            else:
+                print(
+                    "[bold yellow]No virtual machine infrastructure found for environment"
+                    f" '{environment.name}'. Skipping VM destruction.[/bold yellow]"
+                )
 
         # Clean up environment directory
         env_dir_path = self.deployments_path / "environments" / environment.name
@@ -705,3 +787,41 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             e for e in deployment_config.environments if e.name != environment.name
         ]
         deployment_config.save(self.deployments_path)
+
+    def run(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        service_name_slug: str,
+        command: str,
+    ):
+        """Runs a command on a specific service."""
+        print(f"\n[bold blue]Running command on '{service_name_slug}': {command}[/bold blue]")
+        env_state_path = self._get_env_state_path(environment.name)
+        env_state = MonolithicDeploymentState.load(env_state_path)
+
+        if not env_state.virtual_machine:
+            raise MonolithicDeploymentError(
+                "Virtual machine is not provisioned for this environment."
+            )
+
+        ansible_user = env_state.virtual_machine.user
+        instance_public_ip = env_state.virtual_machine.public_ip
+
+        run_command_path = (
+            self.deployments_path / "environments" / environment.name / "docker_compose_run"
+        )
+        ansible_runner = AnsibleProvisioner(working_dir=run_command_path)
+        ansible_runner.copy_template("docker_compose_run", "common")
+
+        extra_vars = {
+            "service_name_slug": service_name_slug,
+            "command_to_run": command,
+            "remote_user": ansible_user,
+        }
+        ansible_runner.run_playbook(
+            "main.yml",
+            extra_vars=extra_vars,
+            inventory=instance_public_ip,
+            user=ansible_user,
+        )

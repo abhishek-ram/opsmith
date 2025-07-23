@@ -438,3 +438,14 @@ class BaseDeploymentStrategy(abc.ABC):
     ):
         """Destroys the environment's infrastructure."""
         raise NotImplementedError
+
+    @abc.abstractmethod
+    def run(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        service_name_slug: str,
+        command: str,
+    ):
+        """Runs a command on a specific service."""
+        raise NotImplementedError

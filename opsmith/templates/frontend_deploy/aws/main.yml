@@ -5,7 +5,7 @@
 
   tasks:
     - name: Run build command
-      ansible.builtin.command: "{{ build_cmd }}"
+      ansible.builtin.shell: "{{ build_cmd }}"
       args:
         chdir: "{{ project_root }}"
       environment: "{{ {'PATH': (project_root ~ '/' ~ build_path ~ ':' if build_path else '') ~ lookup('env', 'PATH'), 'HOME': lookup('env', 'HOME')} | combine(build_env_vars | default({})) }}"
@@ -17,3 +17,10 @@
         delete: true
         mode: push
         region: "{{ region }}"
+
+    - name: Invalidate CloudFront cache
+      community.aws.cloudfront_invalidation:
+        distribution_id: "{{ cdn_distribution_id }}"
+        target_paths:
+          - "/*"
+      when: cdn_distribution_id is defined and cdn_distribution_id

@@ -483,7 +483,7 @@ def deploy(ctx: typer.Context):
         inquirer.List(
             "action",
             message=f"What would you like to do with the '{selected_env_name}' environment?",
-            choices=["release", "delete", "exit"],
+            choices=["release", "run", "delete", "exit"],
             default="release",
         )
     ]
@@ -502,6 +502,39 @@ def deploy(ctx: typer.Context):
     if selected_action == "release":
         deployment_strategy.release(deployment_config, selected_env)
         print(f"\nDeployment to '{selected_env_name}' environment completed.")
+    elif selected_action == "run":
+        runnable_services = [
+            s for s in deployment_config.services if s.service_type != ServiceTypeEnum.FRONTEND
+        ]
+        if not runnable_services:
+            print("[bold red]No runnable services found in this project.[/bold red]")
+            raise typer.Exit()
+
+        service_choices = [s.name_slug for s in runnable_services]
+        service_questions = [
+            inquirer.List(
+                "service",
+                message="Select a service to run a command on",
+                choices=service_choices,
+            )
+        ]
+        service_answers = inquirer.prompt(service_questions)
+        selected_service_slug = service_answers["service"]
+
+        command_questions = [
+            inquirer.Text(
+                "command",
+                message=f"Enter the command to run on '{selected_service_slug}'",
+                validate=lambda _, x: len(x.strip()) > 0,
+            )
+        ]
+        command_answers = inquirer.prompt(command_questions)
+        command_to_run = command_answers["command"]
+
+        deployment_strategy.run(
+            deployment_config, selected_env, selected_service_slug, command_to_run
+        )
+        print(f"\nCommand execution on '{selected_env_name}' environment completed.")
     elif selected_action == "delete":
         delete_confirmation_q = [
             inquirer.Text(

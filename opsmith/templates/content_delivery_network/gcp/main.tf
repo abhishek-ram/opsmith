@@ -19,18 +19,18 @@ resource "google_storage_bucket_iam_member" "public_reader" {
   member = "allUsers"
 }
 
-resource "google_compute_backend_bucket" "backend_bucket" {
-  name        = "${var.app_name}-backend-bucket"
-  description = "Backend bucket for ${var.app_name} frontend"
-  bucket_name = google_storage_bucket.frontend_bucket.name
-  enable_cdn  = true
-}
-
 resource "google_compute_managed_ssl_certificate" "ssl_cert" {
   name    = "${var.app_name}-ssl-cert"
   managed {
     domains = [var.domain_name]
   }
+}
+
+resource "google_compute_backend_bucket" "backend_bucket" {
+  name        = "${var.app_name}-backend-bucket"
+  description = "Backend bucket for ${var.app_name} frontend"
+  bucket_name = google_storage_bucket.frontend_bucket.name
+  enable_cdn  = true
 }
 
 resource "google_compute_url_map" "url_map" {
