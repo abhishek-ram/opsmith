@@ -119,6 +119,13 @@ class ServiceInfo(BaseModel):
             " (e.g., 'frontend/dist'). This is required for FRONTEND services."
         ),
     )
+    build_path: Optional[str] = Field(
+        None,
+        description=(
+            "The path to be added to the PATH environment variable so that dependencies for the"
+            " build are available (e.g., 'node_modules/.bin')."
+        ),
+    )
     env_vars: List[EnvVarConfig] = Field(
         default_factory=list,
         description="A list of environment variable configurations required by the service.",
@@ -173,6 +180,15 @@ class DeploymentEnvironment(BaseModel):
     domains: List[DomainInfo] = Field(
         default_factory=list, description="A list of domain configurations for services."
     )
+
+    def get_domains_for_services(self, services: List[ServiceInfo]) -> List[DomainInfo]:
+        """Retrieves a list of domains for the given services."""
+        domains = []
+        domains_by_service_name_slug = {d.service_name_slug: d for d in self.domains}
+        for service in services:
+            if service.name_slug in domains_by_service_name_slug:
+                domains.append(domains_by_service_name_slug[service.name_slug])
+        return domains
 
 
 class DeploymentConfig(ServiceList):
@@ -249,12 +265,29 @@ class VirtualMachineState(BaseModel):
     user: str = Field(..., description="The SSH user for the virtual machine.")
 
 
+class FrontendCDNState(BaseModel):
+    """State for a frontend service deployment."""
+
+    service_name_slug: str = Field(..., description="The slug of the service.")
+    domain_name: str = Field(..., description="The domain name for the service.")
+    bucket_name: str = Field(..., description="The name of the cloud storage bucket.")
+    cdn_domain_name: Optional[str] = Field(None, description="The domain name of the CDN.")
+    cdn_ip_address: Optional[str] = Field(None, description="The IP address of the CDN.")
+    build_env_vars: dict = Field(
+        default_factory=dict,
+        description="Build-time environment variables for the service, keyed by service slug.",
+    )
+
+
 class MonolithicDeploymentState(BaseModel):
     """State for a monolithic deployment environment."""
 
-    registry_url: str = Field(..., description="The URL of the container registry.")
-    virtual_machine: VirtualMachineState = Field(
-        ..., description="The state of the virtual machine."
+    registry_url: Optional[str] = Field(None, description="The URL of the container registry.")
+    virtual_machine: Optional[VirtualMachineState] = Field(
+        None, description="The state of the virtual machine."
+    )
+    frontend_cdn: List[FrontendCDNState] = Field(
+        default_factory=list, description="State of deployed frontend services."
     )
 
     @classmethod

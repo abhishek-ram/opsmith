@@ -39,7 +39,8 @@ For each service, determine:
 5.  `service_port`: The port number the service listens on, if applicable (e.g., 80, 8000, 3000).
 6.  `build_cmd`: The command to build the service, if applicable (e.g., 'npm run build'). This is required for 'frontend' service type.
 7.  `build_dir`: The directory where build artifacts are located, relative to the repository root (e.g., 'frontend/dist'). This is required for 'frontend' service type.
-8.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
+8.  `build_path`: The path to be added to the PATH environment variable so that dependencies for the build are available (e.g., 'node_modules/.bin').
+9.  `env_vars`: A list of environment variable configurations required by the service. For each variable, specify:
     *   `key`: The name of the environment variable.
     *   `is_secret`: A boolean indicating if the variable should be treated as a secret (e.g., contains API keys, passwords, or other sensitive information).
     *   `default_value`: The default value for the variable, if one is provided in the code.
@@ -58,6 +59,7 @@ infrastructure dependencies.
 * If a dependency type is identified (e.g., a database via an ORM like SQLAlchemy or Spring Boot) but the specific provider is configurable or not explicitly set in the code, set the `provider` to `"user_choice"`.
 * Look for code that starts a web server to determine the `port` for services that are web-facing.
 * Scan the code for environment variable usage (e.g., `os.environ.get` in Python, `process.env` in Node.js or settings files) to identify required configurations. Keywords like 'SECRET', 'KEY', 'TOKEN', 'PASSWORD' in the variable name often indicate a secret.
+* For `build_path`, examine build scripts (like in `package.json`). If commands use tools from dependencies (e.g., `tsc`, `vite`, `react-scripts`), the path to their executables might be needed. For Node.js projects, this is typically `node_modules/.bin`. For other ecosystems, it might be different. Set this field if you find evidence that a special path is required for build commands to work.
 * Read as many files as needed until you are sure about the service and infrastructure dependency details.
 """
 

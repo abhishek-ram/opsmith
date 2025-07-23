@@ -418,7 +418,11 @@ def deploy(ctx: typer.Context):
         services_with_domains = list(
             filter(
                 lambda s: s.service_type
-                in [ServiceTypeEnum.BACKEND_API, ServiceTypeEnum.FULL_STACK],
+                in [
+                    ServiceTypeEnum.BACKEND_API,
+                    ServiceTypeEnum.FULL_STACK,
+                    ServiceTypeEnum.FRONTEND,
+                ],
                 deployment_config.services,
             )
         )

@@ -1,9 +1,10 @@
 import base64
+import json
 import shutil
 import subprocess
 from io import StringIO
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import inquirer
 import jinja2
@@ -12,7 +13,7 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, Field
 from rich import print
 
-from opsmith.cloud_providers.base import MachineType, MachineTypeList
+from opsmith.cloud_providers.base import BaseCloudProvider, MachineType, MachineTypeList
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
 from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
@@ -25,7 +26,10 @@ from opsmith.prompts import (
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
+    DomainInfo,
+    FrontendCDNState,
     MonolithicDeploymentState,
+    ServiceInfo,
     ServiceTypeEnum,
     VirtualMachineState,
 )
@@ -214,7 +218,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             domain = domain_info.domain_name if domain_info else None
 
             content = template.render(
-                image_name=image_url, port=service.service_port, domain=domain
+                image_name=image_url,
+                port=service.service_port,
+                domain=domain,
+                service_name_slug=service.name_slug,
             )
             service_snippets_list.append(f"# {service.name_slug}\n{content}")
         service_snippets = "\n\n".join(service_snippets_list)
@@ -304,36 +311,121 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 f" {max_attempts} attempts.[/bold red]"
             )
 
-    def deploy(
+    @staticmethod
+    def _prompt_for_build_env_vars(
+        service: ServiceInfo, existing_vars: Optional[dict] = None
+    ) -> dict:
+        """Prompt user for build environment variables for services."""
+        service_vars = existing_vars.copy() if existing_vars else {}
+        if not service.env_vars:
+            return service_vars
+
+        print(
+            "\n[bold]Configuring build-time environment variables for service"
+            f" `{service.name_slug}`:[/bold]"
+        )
+        for env_var in service.env_vars:
+            default_val = service_vars.get(env_var.key, env_var.default_value)
+
+            if env_var.is_secret:
+                question = inquirer.Password(
+                    env_var.key,
+                    message=f"  Enter value for secret '{env_var.key}'",
+                    default=default_val,
+                )
+            else:
+                question = inquirer.Text(
+                    env_var.key,
+                    message=f"  Enter value for '{env_var.key}'",
+                    default=default_val,
+                )
+
+            answers = inquirer.prompt([question])
+            if answers and answers.get(env_var.key) is not None:
+                service_vars[env_var.key] = answers[env_var.key]
+
+        return service_vars
+
+    def _build_and_upload_frontend_assets(
+        self,
+        service: ServiceInfo,
+        bucket_name: str,
+        cloud_provider: BaseCloudProvider,
+        environment: DeploymentEnvironment,
+        build_env_vars: dict,
+    ):
+        """Builds frontend assets and uploads them to cloud storage."""
+        print(
+            f"\n[bold blue]Building and deploying assets for '{service.name_slug}'...[/bold blue]"
+        )
+
+        deploy_path = (
+            self.deployments_path
+            / "environments"
+            / environment.name
+            / "frontend_deploy"
+            / service.name_slug
+        )
+        deploy_path.mkdir(parents=True, exist_ok=True)
+
+        ansible_runner = AnsibleProvisioner(working_dir=deploy_path)
+        provider_name = cloud_provider.name().lower()
+        ansible_runner.copy_template("frontend_deploy", provider_name)
+        extra_vars = {
+            "build_cmd": service.build_cmd,
+            "build_dir": service.build_dir,
+            "build_path": service.build_path,
+            "bucket_name": bucket_name,
+            "project_root": self.src_dir,
+            "region": environment.region,
+            "build_env_vars": build_env_vars,
+        }
+        ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
+        print(f"[bold green]Assets for '{service.name_slug}' deployed successfully.[/bold green]")
+
+    def _create_content_delivery_network(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
+        service_info: ServiceInfo,
+        domain_info: DomainInfo,
+        cloud_provider: BaseCloudProvider,
     ):
-        """
-        Creates a monolithic deployment environment using the provided deployment configuration and
-        environment details. This function includes steps for setting up a container registry,
-        building and pushing images, estimating resource requirements, selecting cloud provider
-        instance types, creating a virtual machine, and generating Docker Compose configurations
-        for deployment.
-
-        :param deployment_config: Configuration object containing details of services, infrastructure
-            dependencies, and other deployment settings.
-        :type deployment_config: DeploymentConfig
-        :param environment: Deployment environment details, including region and other configurations.
-        :type environment: DeploymentEnvironment
-        :return: None
-        """
+        """Creates CDN and cloud storage for a frontend service."""
         print(
-            f"\n[bold blue]Setting up container registry for region '{environment.region}'...[/bold"
-            " blue]"
+            f"\n[bold blue]Creating content delivery network for service '{service_info.name_slug}'"
+            f"  '({domain_info.domain_name})'...[/bold blue]"
         )
-        registry_url = self._setup_container_registry(deployment_config, environment)
-        images = self._build_and_push_images(deployment_config, environment, registry_url)
+        infra_path = (
+            self.deployments_path
+            / "environments"
+            / environment.name
+            / "content_delivery_network"
+            / service_info.name_slug
+        )
+        infra_path.mkdir(parents=True, exist_ok=True)
 
-        cloud_provider = deployment_config.cloud_provider_instance
+        tf = TerraformProvisioner(working_dir=infra_path)
+        tf.copy_template("content_delivery_network", cloud_provider.name().lower())
 
-        print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
+        variables = {
+            "app_name": deployment_config.app_name_slug,
+            "region": environment.region,
+            "domain_name": domain_info.domain_name,
+        }
 
+        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+        tf.init_and_apply(variables, env_vars=env_vars)
+        outputs = tf.get_output()
+        return outputs
+
+    def _select_virtual_machine_type(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        cloud_provider: BaseCloudProvider,
+    ) -> MachineType:
+        """Selects a virtual machine type for a new deployment environment."""
         with WaitingSpinner(text="Fetching available instance types"):
             machine_type_list = cloud_provider.get_instance_types(environment.region)
 
@@ -369,60 +461,167 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             )
         ]
         answers = inquirer.prompt(questions)
-        selected_machine_type: MachineType = answers["instance_type"]
+        return answers["instance_type"]
 
-        instance_type = selected_machine_type.name
-        instance_arch = selected_machine_type.architecture
+    @staticmethod
+    def _confirm_dns_records(
+        dns_records: List[Dict[str, str]],
+    ):
+        """Confirms the DNS records for the created service/s."""
         print(
-            f"[bold green]Selected instance type: {instance_type} ({instance_arch.value})[/bold"
-            " green]"
+            "\n[bold blue]Please configure the following DNS records for your domain:[/bold blue]"
         )
 
-        print("\n[bold blue]Creating new virtual machine for monolithic deployment...[/bold blue]")
-        instance_public_ip, ansible_user = self._create_virtual_machine(
-            deployment_config, environment, instance_type, cloud_provider
-        )
+        for record in dns_records:
+            print("\n[cyan]----------------------------------------[/cyan]")
+            if record.get("comment"):
+                print(f"  [bold]Comment:[/bold] {record.get('comment')}")
+            print(f"  [bold]Type:[/bold]    {record.get('type')} Record")
+            print(f"  [bold]Name:[/bold]    {record.get('name')}")
+            print(f"  [bold]Value:[/bold]   {record.get('value')}")
+            print("[cyan]----------------------------------------[/cyan]")
 
+        confirm_question = [
+            inquirer.Confirm(
+                "dns_configured",
+                message=(
+                    "Have you configured the DNS records as shown above? (This might take"
+                    " a few minutes to propagate)"
+                ),
+                default=True,
+            )
+        ]
+        answers = inquirer.prompt(confirm_question)
+        if not answers or not answers.get("dns_configured"):
+            print("[bold red]DNS configuration not confirmed. Aborting deployment.[/bold red]")
+            raise MonolithicDeploymentError("User did not confirm DNS configuration.")
+
+    def deploy(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+    ):
+        """
+        Creates a monolithic deployment environment using the provided deployment configuration and
+        environment details. This function includes steps for setting up a container registry,
+        building and pushing images, estimating resource requirements, selecting cloud provider
+        instance types, creating a virtual machine, and generating Docker Compose configurations
+        for deployment.
+
+        :param deployment_config: Configuration object containing details of services, infrastructure
+            dependencies, and other deployment settings.
+        :type deployment_config: DeploymentConfig
+        :param environment: Deployment environment details, including region and other configurations.
+        :type environment: DeploymentEnvironment
+        :return: None
+        """
+        frontend_services = [
+            s for s in deployment_config.services if s.service_type == ServiceTypeEnum.FRONTEND
+        ]
+        other_services = [
+            s for s in deployment_config.services if s.service_type != ServiceTypeEnum.FRONTEND
+        ]
+
+        cloud_provider = deployment_config.cloud_provider_instance
         env_state_path = self._get_env_state_path(environment.name)
-        env_state = MonolithicDeploymentState(
-            registry_url=registry_url,
-            virtual_machine=VirtualMachineState(
+
+        env_state = MonolithicDeploymentState()
+        if frontend_services:
+            print("\n[bold blue]Deploying frontend services...[/bold blue]")
+            domains_map = {d.service_name_slug: d for d in environment.domains}
+
+            for service in frontend_services:
+                domain_info = domains_map.get(service.name_slug)
+                if not domain_info:
+                    print(
+                        f"[bold red]No domain configured for frontend service {service.name_slug}."
+                        " Skipping.[/bold red]"
+                    )
+                    continue
+
+                cdn_outputs = self._create_content_delivery_network(
+                    deployment_config, environment, service, domain_info, cloud_provider
+                )
+
+                build_env_vars = self._prompt_for_build_env_vars(service)
+                cdn_state = FrontendCDNState(
+                    service_name_slug=service.name_slug,
+                    domain_name=domain_info.domain_name,
+                    bucket_name=cdn_outputs.get("bucket_name"),
+                    cdn_domain_name=cdn_outputs.get("cdn_domain_name"),
+                    cdn_ip_address=cdn_outputs.get("cdn_ip_address"),
+                    build_env_vars=build_env_vars,
+                )
+                env_state.frontend_cdn.append(cdn_state)
+
+                dns_records_json = cdn_outputs.get("dns_records")
+                if dns_records_json:
+                    self._confirm_dns_records(json.loads(dns_records_json))
+
+                self._build_and_upload_frontend_assets(
+                    service,
+                    cdn_state.bucket_name,
+                    cloud_provider,
+                    environment,
+                    cdn_state.build_env_vars,
+                )
+
+        if other_services:
+            original_services = deployment_config.services
+            deployment_config.services = other_services
+
+            print(
+                "\n[bold blue]Setting up container registry for region"
+                f" '{environment.region}'...[/bold blue]"
+            )
+            registry_url = self._setup_container_registry(deployment_config, environment)
+            images = self._build_and_push_images(deployment_config, environment, registry_url)
+
+            print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
+            selected_machine_type = self._select_virtual_machine_type(
+                deployment_config, environment, cloud_provider
+            )
+            instance_type = selected_machine_type.name
+            instance_arch = selected_machine_type.architecture
+            print(
+                f"[bold green]Selected instance type: {instance_type} ({instance_arch.value})[/bold"
+                " green]"
+            )
+
+            print(
+                "\n[bold blue]Creating new virtual machine for monolithic deployment...[/bold blue]"
+            )
+            instance_public_ip, ansible_user = self._create_virtual_machine(
+                deployment_config, environment, instance_type, cloud_provider
+            )
+
+            virtual_machine_state = VirtualMachineState(
                 ram_gb=selected_machine_type.ram_gb,
                 cpu=selected_machine_type.cpu,
                 instance_type=instance_type,
                 architecture=instance_arch,
                 public_ip=instance_public_ip,
                 user=ansible_user,
-            ),
-        )
+            )
+            deployment_config.services = original_services
+
+            dns_records = []
+            for domain in environment.get_domains_for_services(other_services):
+                dns_records.append(
+                    {
+                        "type": "A",
+                        "name": domain.domain_name,
+                        "value": instance_public_ip,
+                    }
+                )
+            self._confirm_dns_records(dns_records)
+
+            env_state.registry_url = registry_url
+            env_state.virtual_machine = virtual_machine_state
+            self._generate_docker_compose(deployment_config, environment, images, env_state)
+
         env_state.save(env_state_path)
         print(f"Monolithic deployment state saved to {env_state_path}")
-
-        if environment.domains:
-            print("\n[bold]Please configure the following DNS records for your domains:[/bold]")
-            for domain in environment.domains:
-                print("\n[cyan]----------------------------------------[/cyan]")
-                print("  [bold]Type:[/bold]  A Record")
-                print(f"  [bold]Name:[/bold]  {domain.domain_name}")
-                print(f"  [bold]Value:[/bold] {instance_public_ip}")
-                print("[cyan]----------------------------------------[/cyan]")
-
-            confirm_question = [
-                inquirer.Confirm(
-                    "dns_configured",
-                    message=(
-                        "Have you configured the DNS records as shown above? (This might take a few"
-                        " minutes to propagate)"
-                    ),
-                    default=True,
-                )
-            ]
-            answers = inquirer.prompt(confirm_question)
-            if not answers or not answers.get("dns_configured"):
-                print("[bold red]DNS configuration not confirmed. Aborting deployment.[/bold red]")
-                raise MonolithicDeploymentError("User did not confirm DNS configuration.")
-
-        self._generate_docker_compose(deployment_config, environment, images, env_state)
 
     def release(
         self,

@@ -3,7 +3,6 @@ import os
 from importlib.metadata import entry_points
 from typing import Dict, List, Optional, Tuple, Type
 
-from anthropic.types.beta import BetaThinkingConfigEnabledParam
 from google.genai.types import ThinkingConfigDict
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.models.google import GoogleModelSettings
@@ -178,9 +177,7 @@ class AnthropicClaudeSonnet37(BaseAiModel):
     @classmethod
     def get_model_settings(cls) -> ModelSettings:
         """Returns model-specific settings."""
-        return AnthropicModelSettings(
-            anthropic_thinking=BetaThinkingConfigEnabledParam(type="enabled", budget_tokens=32768)
-        )
+        return AnthropicModelSettings()
 
 
 class AnthropicClaudeSonnet4(BaseAiModel):
@@ -199,9 +196,7 @@ class AnthropicClaudeSonnet4(BaseAiModel):
     @classmethod
     def get_model_settings(cls) -> ModelSettings:
         """Returns model-specific settings."""
-        return AnthropicModelSettings(
-            anthropic_thinking=BetaThinkingConfigEnabledParam(type="enabled", budget_tokens=32768)
-        )
+        return AnthropicModelSettings()
 
 
 class GoogleGlaGemini25Pro(BaseAiModel):

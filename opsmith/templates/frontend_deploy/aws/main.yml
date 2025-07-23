@@ -1,0 +1,19 @@
+- name: Build and Deploy Frontend to S3
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  tasks:
+    - name: Run build command
+      ansible.builtin.command: "{{ build_cmd }}"
+      args:
+        chdir: "{{ project_root }}"
+      environment: "{{ {'PATH': (project_root ~ '/' ~ build_path ~ ':' if build_path else '') ~ lookup('env', 'PATH'), 'HOME': lookup('env', 'HOME')} | combine(build_env_vars | default({})) }}"
+
+    - name: Sync build directory to S3
+      community.aws.s3_sync:
+        bucket: "{{ bucket_name }}"
+        file_root: "{{ project_root }}/{{ build_dir }}/"
+        delete: true
+        mode: push
+        region: "{{ region }}"
