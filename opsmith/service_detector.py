@@ -113,8 +113,7 @@ class ServiceDetector:
             )
             return
 
-        service_dir_name = "images"
-        service_dir_path = self.deployments_path / service_dir_name / service.name_slug
+        service_dir_path = self.deployments_path / "docker" / service.name_slug
         service_dir_path.mkdir(parents=True, exist_ok=True)
         dockerfile_path_abs = service_dir_path / "Dockerfile"
         print(
