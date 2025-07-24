@@ -18,3 +18,10 @@ resource "google_storage_bucket_iam_member" "public_reader" {
   role   = "roles/storage.objectViewer"
   member = "allUsers"
 }
+
+resource "google_compute_managed_ssl_certificate" "ssl_cert" {
+  name    = "${var.app_name}-ssl-cert"
+  managed {
+    domains = [var.domain_name]
+  }
+}

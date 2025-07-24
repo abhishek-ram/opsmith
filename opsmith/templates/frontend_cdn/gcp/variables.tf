@@ -17,3 +17,13 @@ variable "bucket_name" {
   description = "The name of the GCS bucket."
   type        = string
 }
+
+variable "certificate_id" {
+  description = "The ID of the managed SSL certificate."
+  type        = string
+}
+
+variable "region" {
+  description = "The GCP region."
+  type        = string
+}

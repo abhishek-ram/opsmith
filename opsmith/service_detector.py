@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional
 
@@ -87,7 +88,16 @@ class ServiceDetector:
         with WaitingSpinner(text="Waiting for the LLM"):
             run_result = self.agent.run_sync(prompt, output_type=ServiceList, deps=self.agent_deps)
 
-        return run_result.output
+        service_list = run_result.output
+
+        base_slug_counts = defaultdict(int)
+        for service in service_list.services:
+            base_slug = f"{service.language}_{service.service_type.value}".replace(" ", "_").lower()
+            count = base_slug_counts[base_slug] + 1
+            base_slug_counts[base_slug] = count
+            service.name_slug = f"{base_slug}_{count}"
+
+        return service_list
 
     def generate_dockerfile(self, service: ServiceInfo):
         """Generates Dockerfiles for each service in the deployment configuration."""

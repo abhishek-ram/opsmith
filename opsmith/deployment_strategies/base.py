@@ -177,9 +177,7 @@ class BaseDeploymentStrategy(abc.ABC):
                 continue
 
             # This logic is from generate_dockerfiles
-            service_dir_slug = f"{service.language}_{service.service_type.value}".replace(
-                " ", "_"
-            ).lower()
+            service_dir_slug = service.name_slug
             service_image_dir = "images"
             dockerfile_path_abs = (
                 self.deployments_path / service_image_dir / service_dir_slug / "Dockerfile"

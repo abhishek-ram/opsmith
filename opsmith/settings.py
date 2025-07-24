@@ -9,8 +9,8 @@ from pydantic_settings import (
 class OpsmithSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPSMITH_", yaml_file=".opsmith.conf.yml")
 
-    deployments_dir: str = ".opsmith.deployments"
-    config_filename: str = "config.yml"
+    deployments_dir: str = ".opsmith"
+    config_filename: str = "deployments.yml"
 
     @classmethod
     def settings_customise_sources(

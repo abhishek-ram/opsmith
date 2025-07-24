@@ -3,7 +3,7 @@ output "bucket_name" {
   value       = aws_s3_bucket.frontend_bucket.id
 }
 
-output "certificate_arn" {
+output "certificate_id" {
   description = "The ARN of the ACM certificate."
   value       = aws_acm_certificate.cert.arn
 }

@@ -94,6 +94,9 @@ class EnvVarConfig(BaseModel):
 class ServiceInfo(BaseModel):
     """Describes a single service to be deployed."""
 
+    name_slug: str = Field(
+        "slug", description="The unique slug for the service, e.g. python_backend_api_1"
+    )
     language: str = Field(..., description="The primary programming language of the service.")
     language_version: Optional[str] = Field(
         None, description="The specific version of the language, if identifiable."
@@ -140,10 +143,6 @@ class ServiceInfo(BaseModel):
             if not self.build_dir:
                 raise ValueError("'build_dir' is required for FRONTEND service type")
         return self
-
-    @property
-    def name_slug(self) -> str:
-        return f"{self.language}_{self.service_type.value}".replace(" ", "_").lower()
 
 
 class ServiceList(BaseModel):
@@ -277,6 +276,7 @@ class FrontendCDNState(BaseModel):
         None, description="The ID of the AWS CloudFront distribution."
     )
     cdn_url_map: Optional[str] = Field(None, description="The name of the GCP URL map.")
+    certificate_id: Optional[str] = Field(None, description="The ID or ARN of the SSL certificate.")
     build_env_vars: dict = Field(
         default_factory=dict,
         description="Build-time environment variables for the service, keyed by service slug.",

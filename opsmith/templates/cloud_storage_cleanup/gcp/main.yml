@@ -4,20 +4,6 @@
   gather_facts: no
 
   tasks:
-    - name: Create empty directory for sync
-      ansible.builtin.tempfile:
-        state: directory
-      register: empty_dir_for_sync
-
     - name: Delete all files from GCS bucket
-      google.cloud.gcp_storage_sync:
-        destination: "{{ bucket_name }}"
-        source: "{{ empty_dir_for_sync.path }}/"
-        delete: true
-        recursion: true
-
-    - name: Remove temporary directory
-      ansible.builtin.file:
-        path: "{{ empty_dir_for_sync.path }}"
-        state: absent
-      when: empty_dir_for_sync.path is defined
+      debug:
+        msg: "Deleting files from GCP bucket is currently not supported."

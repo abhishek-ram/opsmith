@@ -18,7 +18,7 @@ variable "bucket_name" {
   type        = string
 }
 
-variable "certificate_arn" {
+variable "certificate_id" {
   description = "The ARN of the ACM certificate."
   type        = string
 }

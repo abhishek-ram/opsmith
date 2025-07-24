@@ -2,6 +2,8 @@
   hosts: localhost
   connection: local
   gather_facts: no
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
   tasks:
     - name: Run build command
@@ -10,16 +12,51 @@
         chdir: "{{ project_root }}"
       environment: "{{ {'PATH': (project_root ~ '/' ~ build_path ~ ':' if build_path else '') ~ lookup('env', 'PATH'), 'HOME': lookup('env', 'HOME')} | combine(build_env_vars | default({})) }}"
 
-    - name: Sync build directory to GCS
-      google.cloud.gcp_storage_sync:
-        destination: "{{ bucket_name }}"
-        source: "{{ project_root }}/{{ build_dir }}/"
-        delete: true
-        recursion: true
+    - name: Set full build path
+      ansible.builtin.set_fact:
+        full_build_path: "{{ project_root }}/{{ build_dir }}"
+
+    - name: Sync all files to bucket
+      shell: |
+        gsutil -m rsync -r -d \
+          {{ full_build_path }}/ \
+          gs://{{ bucket_name }}/
+      register: sync_result
+      changed_when: "'TOTAL' in sync_result.stderr"
+
+    - name: Set content types for files
+      shell: |
+        # Set content types for CSS files
+        gsutil -m setmeta -h "Content-Type:text/css" gs://{{ bucket_name }}/**/*.css
+        
+        # Set content types for HTML files
+        gsutil -m setmeta -h "Content-Type:text/html" gs://{{ bucket_name }}/**/*.html
+        
+        # Set content types for JS files  
+        gsutil -m setmeta -h "Content-Type:application/javascript" gs://{{ bucket_name }}/**/*.js
+
+        # Set content types for JSON files
+        gsutil -m setmeta -h "Content-Type:application/json" gs://{{ bucket_name }}/**/*.json
+
+        # Set content types for image files
+        gsutil -m setmeta -h "Content-Type:image/png" gs://{{ bucket_name }}/**/*.png
+        gsutil -m setmeta -h "Content-Type:image/jpeg" gs://{{ bucket_name }}/**/*.jpg
+        gsutil -m setmeta -h "Content-Type:image/jpeg" gs://{{ bucket_name }}/**/*.jpeg
+        gsutil -m setmeta -h "Content-Type:image/gif" gs://{{ bucket_name }}/**/*.gif
+        gsutil -m setmeta -h "Content-Type:image/svg+xml" gs://{{ bucket_name }}/**/*.svg
+        gsutil -m setmeta -h "Content-Type:image/x-icon" gs://{{ bucket_name }}/**/*.ico
+
+        # Set content types for font files
+        gsutil -m setmeta -h "Content-Type:font/woff" gs://{{ bucket_name }}/**/*.woff
+        gsutil -m setmeta -h "Content-Type:font/woff2" gs://{{ bucket_name }}/**/*.woff2
+        gsutil -m setmeta -h "Content-Type:font/ttf" gs://{{ bucket_name }}/**/*.ttf
+        gsutil -m setmeta -h "Content-Type:application/vnd.ms-fontobject" gs://{{ bucket_name }}/**/*.eot
+      ignore_errors: yes
 
     - name: Invalidate CDN cache
-      google.cloud.gcp_compute_cache_invalidation:
-        url_map: "{{ cdn_url_map }}"
-        path: "/*"
-        state: present
-      when: cdn_url_map is defined and cdn_url_map
+      shell: |
+        gcloud compute url-maps invalidate-cdn-cache {{ cdn_url_map }} \
+          --path "/*" \
+          --project {{ project_id }}
+      register: gcloud_invalidation
+

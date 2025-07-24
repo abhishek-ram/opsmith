@@ -382,11 +382,13 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             "cdn_distribution_id": cdn_state.cdn_distribution_id,
             "cdn_url_map": cdn_state.cdn_url_map,
         }
+        extra_vars.update(cloud_provider.provider_detail.model_dump(mode="json"))
         ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
         print(f"[bold green]Assets for '{service.name_slug}' deployed successfully.[/bold green]")
 
     def _create_frontend_bucket_cert(
         self,
+        deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
         service_info: ServiceInfo,
         domain_info: DomainInfo,
@@ -410,6 +412,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         tf.copy_template("frontend_bucket_cert", cloud_provider.name().lower())
 
         variables = {
+            "app_name": deployment_config.app_name_slug,
             "region": environment.region,
             "domain_name": domain_info.domain_name,
         }
@@ -590,7 +593,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     continue
 
                 cdn_part1_outputs = self._create_frontend_bucket_cert(
-                    environment, service, domain_info, cloud_provider
+                    deployment_config, environment, service, domain_info, cloud_provider
                 )
 
                 cdn_part2_outputs = self._create_frontend_cdn(
@@ -612,6 +615,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     cdn_ip_address=cdn_outputs.get("cdn_ip_address"),
                     cdn_distribution_id=cdn_outputs.get("cdn_distribution_id"),
                     cdn_url_map=cdn_outputs.get("cdn_url_map"),
+                    certificate_id=cdn_outputs.get("certificate_id"),
                     build_env_vars=build_env_vars,
                 )
                 env_state.frontend_cdn.append(cdn_state)
@@ -809,11 +813,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     "region": environment.region,
                     "domain_name": cdn_state.domain_name,
                     "bucket_name": cdn_state.bucket_name,
+                    "certificate_id": cdn_state.certificate_id,
                 }
-                # if cloud_provider.name().lower() == "aws":
-                variables_p2["certificate_arn"] = (
-                    "arn:aws:acm:us-east-1:666347638672:certificate/02968845-ada8-4fc7-9f80-f222a719d9ff"
-                )
                 env_vars = cloud_provider.provider_detail.model_dump(mode="json")
                 tf_p2.destroy(variables_p2, env_vars=env_vars)
 
@@ -834,6 +835,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             if infra_path_p1.exists():
                 tf_p1 = TerraformProvisioner(working_dir=infra_path_p1)
                 variables_p1 = {
+                    "app_name": deployment_config.app_name_slug,
                     "region": environment.region,
                     "domain_name": cdn_state.domain_name,
                 }
