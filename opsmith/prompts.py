@@ -167,6 +167,7 @@ Your job is to combine these into a single valid docker-compose.yml file and pro
 **Environment and Secrets instructions:**
 - For infrastructure service snippets that use placeholders like `${{VAR}}`, you must generate a secure value for `VAR`. Use the `generate_secret` tool to create secure passwords or other secret values.
 - For each application service, you must determine its environment variables. Use the `env_vars` from `Service Info` as a base. Do not change the variable names (`key`).
+- If `previously_confirmed_env_vars` is not 'N/A', you must use these values for the `.env` file content. You should only change them if you believe they are the cause of a deployment failure.
 - You must deduce values for variables where possible. For example, if a service needs a database URL and there is a `postgresql` infrastructure dependency, construct the correct connection string (e.g., `postgresql://user:password@postgresql:5432/dbname`). The service name in the docker network will be the key from `infra_snippets` (e.g., `postgresql`).
 - Return the complete content for a `.env` file in the `env_file_content` field. The content should be a string with each variable on a new line, in `KEY="VALUE"` format.
 
@@ -174,6 +175,11 @@ If validation of the docker compose file has failed then the feedback needs to b
 The feedback contains the output from the deployment attempt and an analysis from an LLM indicating why it failed.
 Use this feedback to correct the `docker-compose.yml` and/or `.env` file content.
 When correcting the file, explain the root cause of the failure in the `reason` field.
+
+PREVIOUSLY_CONFIRMED_ENV_VARS:
+```
+{previously_confirmed_env_vars}
+```
 
 Base docker-compose:
 ```

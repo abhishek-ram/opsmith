@@ -89,7 +89,6 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     def _confirm_env_vars(
         deployment_config: DeploymentConfig,
         env_file_content: str,
-        existing_confirmed_vars: Dict[str, str],
     ) -> Tuple[str, Dict[str, str]]:
         """
         Parses environment variables from LLM response, confirms with user, and returns updated content.
@@ -102,8 +101,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         # Prepare questions for inquirer
         questions = []
         for key, value in sorted(env_file_vars.items()):
-            # Precedence: existing confirmed > llm > code default
-            default_value = existing_confirmed_vars.get(key) or value or env_defaults.get(key)
+            # Precedence: llm > code default
+            default_value = value or env_defaults.get(key)
             questions.append(
                 inquirer.Text(
                     name=key,
@@ -116,7 +115,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         print("\n[bold]Please confirm or provide values for environment variables:[/bold]")
         answers = inquirer.prompt(questions)
 
-        # For the .env file, merge with precedence: user answers > existing confirmed > llm
+        # For the .env file, merge with precedence: user answers > llm
         final_env_vars_for_file = {**env_file_vars, **answers}
 
         # Reconstruct env file content
@@ -250,6 +249,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 services_info_yaml=services_info_yaml,
                 service_snippets=service_snippets,
                 infra_snippets=infra_snippets,
+                previously_confirmed_env_vars=(
+                    yaml.dump(confirmed_env_vars) if confirmed_env_vars else "N/A"
+                ),
             )
 
             spinner_text = (
@@ -275,7 +277,6 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             confirmed_env_content, confirmed_env_vars = self._confirm_env_vars(
                 deployment_config,
                 docker_compose_response.output.env_file_content,
-                confirmed_env_vars,
             )
 
             deployment_output = self._deploy_docker_compose(
