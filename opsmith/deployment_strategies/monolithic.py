@@ -34,7 +34,7 @@ from opsmith.types import (
     ServiceTypeEnum,
     VirtualMachineState,
 )
-from opsmith.utils import WaitingSpinner
+from opsmith.utils import WaitingSpinner, slugify
 
 
 class DockerComposeLogValidation(BaseModel):
@@ -882,10 +882,59 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     f"[bold red]Error deleting environment directory {env_dir_path}: {e}[/bold red]"
                 )
 
-        # Clean up the deployment config
-        deployment_config.environments = [
+        # Clean up the container registry if there are no more envs in that region
+        remaining_environments = [
             e for e in deployment_config.environments if e.name != environment.name
         ]
+        remaining_environments_in_region = [
+            e for e in remaining_environments if e.region == environment.region
+        ]
+
+        if not remaining_environments_in_region and env_state.registry_url:
+            print(
+                f"\n[bold blue]Last environment in region '{environment.region}'. Destroying"
+                " container registry...[/bold blue]"
+            )
+            app_name = deployment_config.app_name_slug
+            registry_name = slugify(f"{app_name}-{environment.region}")
+
+            registry_infra_path = (
+                self.deployments_path
+                / "environments"
+                / "global"
+                / environment.region
+                / "container_registry"
+            )
+
+            if registry_infra_path.exists():
+                tf = TerraformProvisioner(working_dir=registry_infra_path)
+                variables = {
+                    "app_name": app_name,
+                    "registry_name": registry_name,
+                    "region": environment.region,
+                }
+                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                tf.destroy(variables, env_vars=env_vars)
+                print("[bold green]Container registry destroyed successfully.[/bold green]")
+                try:
+                    shutil.rmtree(registry_infra_path.parent)
+                    print(
+                        f"[bold green]Global region directory '{registry_infra_path.parent}'"
+                        " deleted.[/bold green]"
+                    )
+                except OSError as e:
+                    print(
+                        "[bold red]Error deleting global region directory"
+                        f" {registry_infra_path.parent}: {e}[/bold red]"
+                    )
+            else:
+                print(
+                    "[bold yellow]Container registry infrastructure path not found. Skipping"
+                    " destruction.[/bold yellow]"
+                )
+
+        # Clean up the deployment config
+        deployment_config.environments = remaining_environments
         deployment_config.save(self.deployments_path)
 
     def run(
