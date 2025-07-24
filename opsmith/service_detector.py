@@ -6,23 +6,25 @@ from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional
 
+import inquirer
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
 from rich import print
 from rich.markup import escape
 
 from opsmith.agent import AgentDeps
+from opsmith.exceptions import OpsmithException
 from opsmith.prompts import (
     DOCKERFILE_GENERATION_PROMPT_TEMPLATE,
+    DOCKERFILE_VALIDATION_PROMPT_TEMPLATE,
     REPO_ANALYSIS_PROMPT_TEMPLATE,
 )
 from opsmith.repo_map import RepoMap
 from opsmith.settings import settings
 from opsmith.types import ServiceInfo, ServiceList, ServiceTypeEnum
 from opsmith.utils import WaitingSpinner
-
-MAX_DOCKERFILE_GENERATE_ATTEMPTS = 5
 
 
 class DockerfileContent(BaseModel):
@@ -35,13 +37,25 @@ class DockerfileContent(BaseModel):
     reason: Optional[str] = Field(
         None, description="The reasoning for the selection of the final Dockerfile content."
     )
-    is_final: bool = Field(
+    give_up: bool = Field(
         False,
         description=(
-            "Set this to true if you believe the Dockerfile is correct and complete, and any"
-            " further validation errors are due to runtime configuration (like missing env vars)"
-            " that cannot be fixed in the Dockerfile."
+            "Set this to true if you are unable to fix the Dockerfile based on the provided"
+            " feedback, either because of an issue in the code or because you cannot determine a"
+            " solution."
         ),
+    )
+
+
+class DockerfileValidation(BaseModel):
+    """The result of validating the logs from a docker build and run."""
+
+    is_successful: bool = Field(
+        ...,
+        description="Whether the build and run is considered successful based on container logs.",
+    )
+    reason: Optional[str] = Field(
+        None, description="If not successful, an explanation of what went wrong."
     )
 
 
@@ -121,23 +135,34 @@ class ServiceDetector:
             f" {service.language} ({service.service_type})...[/bold]"
         )
 
+        dockerfile_content = self._generate_and_validate_dockerfile(service, dockerfile_path_abs)
+
+        with open(dockerfile_path_abs, "w", encoding="utf-8") as f:
+            f.write(dockerfile_content)
+        print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
+
+    def _generate_and_validate_dockerfile(
+        self, service: ServiceInfo, dockerfile_path_abs: Path
+    ) -> str:
+        """Generates and validates a Dockerfile for a given service."""
         existing_dockerfile_content = "N/A"
         if dockerfile_path_abs.exists():
             with open(dockerfile_path_abs, "r", encoding="utf-8") as f:
                 existing_dockerfile_content = f.read()
 
         service_info_yaml = yaml.dump(service.model_dump(mode="json"), indent=2)
-        validation_feedback = ""
         dockerfile_content = ""
         messages = []
+        completed = False
+        attempt = 0
 
-        for attempt in range(MAX_DOCKERFILE_GENERATE_ATTEMPTS):
-            print(f"\n[bold]Attempt {attempt + 1}/{MAX_DOCKERFILE_GENERATE_ATTEMPTS}...[/bold]")
+        while attempt < settings.max_dockerfile_gen_attempts:
+            attempt += 1
+            print(f"\n[bold]Attempt {attempt}/{settings.max_dockerfile_gen_attempts}...[/bold]")
             prompt = DOCKERFILE_GENERATION_PROMPT_TEMPLATE.format(
                 service_info_yaml=service_info_yaml,
                 repo_map_str=self.repo_map.get_repo_map(),
                 existing_dockerfile_content=existing_dockerfile_content,
-                validation_feedback=validation_feedback,
             )
             with WaitingSpinner(text="Waiting for the LLM to generate the Dockerfile"):
                 response = self.agent.run_sync(
@@ -147,37 +172,51 @@ class ServiceDetector:
                     message_history=messages,
                 )
                 dockerfile_content = response.output.content
-                is_final = response.output.is_final
-                messages = response.new_messages()
+                give_up = response.output.give_up
+                reason = response.output.reason
+
+            if give_up:
+                print(
+                    "[bold yellow]LLM indicated it cannot fix the Dockerfile further:"
+                    f" \n{reason}.[/bold yellow]"
+                )
+                break
 
             with WaitingSpinner(text="Validating generated Dockerfile"):
-                validation_error = self._validate_dockerfile(dockerfile_content)
-
-            if validation_error is None:
-                print("[bold green]Dockerfile validation successful.[/bold green]")
-                with open(dockerfile_path_abs, "w", encoding="utf-8") as f:
-                    f.write(dockerfile_content)
-                print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
-                return
-
-            # Only trust is_final if there was feedback provided to the LLM (i.e. not first attempt)
-            if is_final and validation_feedback:
-                print(
-                    "[bold yellow]Dockerfile validation failed, but LLM marked it as final."
-                    " Accepting.[/bold yellow]"
+                is_successful, reason, validation_messages = self._validate_dockerfile(
+                    dockerfile_content
                 )
-                with open(dockerfile_path_abs, "w", encoding="utf-8") as f:
-                    f.write(dockerfile_content)
-                print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
-                return
 
-            print("[bold red]Dockerfile validation failed.[/bold red]")
-            validation_feedback = validation_error
+            if is_successful:
+                print(f"[bold green]Dockerfile validation successful: \n {reason}.[/bold green]")
+                completed = True
+                break
 
-        raise Exception(
-            "Failed to generate a valid Dockerfile after"
-            f" {MAX_DOCKERFILE_GENERATE_ATTEMPTS} attempts."
-        )
+            print(f"Docker compose validation 'failed' with reason: \n {reason}.")
+
+            messages = response.new_messages() + validation_messages
+
+        while not completed:
+            editor_questions = [
+                inquirer.Editor(
+                    "dockerfile",
+                    message="Would you like to manually edit the Dockerfile?",
+                    default=lambda _: dockerfile_content,  # last generated content
+                )
+            ]
+            editor_answers = inquirer.prompt(editor_questions)
+            if not editor_answers:
+                raise OpsmithException("Dockerfile generation aborted by user.")
+            dockerfile_content = editor_answers["dockerfile"]
+
+            with WaitingSpinner(text="Validating generated Dockerfile"):
+                completed, reason, _ = self._validate_dockerfile(dockerfile_content)
+                print(
+                    f"Dockerfile validation {'succeeded' if completed else 'failed'} "
+                    f"with reason: \n {reason}."
+                )
+
+        return dockerfile_content
 
     @staticmethod
     def _run_command_with_streaming_output(
@@ -217,13 +256,18 @@ class ServiceDetector:
         output_str = "\n".join(output_lines)
         return process.returncode, output_str, timed_out
 
-    def _validate_dockerfile(self, dockerfile_content: str) -> Optional[str]:
+    def _validate_dockerfile(
+        self, dockerfile_content: str
+    ) -> tuple[bool, str, Optional[list[ModelMessage]]]:
         """
         Validates a Dockerfile by building and running it.
-        Returns an error message string on failure, None on success.
+        Returns success status, reason for status
         """
         repo_root = self.agent_deps.src_dir.resolve()
         image_tag = f"opsmith-build-test-{uuid.uuid4()}"
+        build_output_str = ""
+        run_output_str = ""
+        is_successful = True
 
         try:
             # Create temporary directory for Dockerfile
@@ -248,36 +292,23 @@ class ServiceDetector:
                     build_command, 30 * 60
                 )
 
-                if build_rc != 0:
-                    # Build failed
-                    return (
-                        "Dockerfile build failed. Please analyze the following output and revise"
-                        f" the Dockerfile:\n{build_output_str}"
-                    )
-
-            # Build successful, now try to run the image
-            print("[bold blue]Build successful. Attempting to run the container...[/bold blue]")
-            run_command = ["docker", "run", "--rm", image_tag]
-            run_rc, run_output_str, timed_out = self._run_command_with_streaming_output(
-                run_command, timeout=60
-            )
-
-            if timed_out:
-                print("[bold yellow]Container running for 60s, assuming success.[/bold yellow]")
-                return None  # Success for long-running services
-
-            if run_rc != 0:
-                # Run failed.
-                return (
-                    "Dockerfile built successfully, but running the image failed. Please analyze"
-                    " the following run output and revise the Dockerfile to fix issues like"
-                    " missing packages or command errors. If you believe the Dockerfile is"
-                    " correct and the failure is due to runtime issues (e.g. missing environment"
-                    " variables), then return the Dockerfile content again but set `is_final` to"
-                    " true in the `DockerfileValidationResponse`.\n\nRun"
-                    f" Output:\n{run_output_str}\n\nBuild Output"
-                    f" was:\n{build_output_str}"
+            # Build failed
+            if build_rc != 0:
+                is_successful = False
+            else:
+                # Build successful, now try to run the image
+                print("[bold blue]Build successful. Attempting to run the container...[/bold blue]")
+                run_command = ["docker", "run", "--rm", image_tag]
+                run_rc, run_output_str, timed_out = self._run_command_with_streaming_output(
+                    run_command, timeout=60
                 )
+
+                if timed_out:
+                    print("[bold yellow]Container running for 60s, assuming success.[/bold yellow]")
+
+                # Run failed.
+                if run_rc != 0:
+                    is_successful = False
         finally:
             # Clean up image
             cleanup_image_process = subprocess.run(
@@ -291,4 +322,21 @@ class ServiceDetector:
                     f"Warning: Failed to remove Docker image {image_tag}:"
                     f" {cleanup_image_process.stderr.strip()}"
                 )
-        return None
+
+        if not is_successful:
+            validation_prompt = DOCKERFILE_VALIDATION_PROMPT_TEMPLATE.format(
+                build_output=build_output_str,
+                run_output=run_output_str,
+            )
+            validation_response = self.agent.run_sync(
+                validation_prompt,
+                output_type=DockerfileValidation,
+                deps=self.agent_deps,
+            )
+            return (
+                validation_response.output.is_successful,
+                validation_response.output.reason,
+                validation_response.new_messages(),
+            )
+
+        return True, "", []

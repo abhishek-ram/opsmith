@@ -12,11 +12,12 @@ import jinja2
 import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, Field
+from pydantic_ai.messages import ModelMessage
 from rich import print
 
 from opsmith.cloud_providers.base import BaseCloudProvider, MachineType, MachineTypeList
 from opsmith.deployment_strategies.base import BaseDeploymentStrategy
-from opsmith.exceptions import MonolithicDeploymentError
+from opsmith.exceptions import MonolithicDeploymentError, OpsmithException
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
 from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.prompts import (
@@ -24,6 +25,7 @@ from opsmith.prompts import (
     DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE,
     MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE,
 )
+from opsmith.settings import settings
 from opsmith.types import (
     DeploymentConfig,
     DeploymentEnvironment,
@@ -62,6 +64,14 @@ class DockerComposeContent(BaseModel):
     reason: Optional[str] = Field(
         None, description="The reason for the failure of the last deployment attempt."
     )
+    give_up: bool = Field(
+        False,
+        description=(
+            "Set this to true if you are unable to fix the docker-compose.yml file based on the"
+            " provided feedback, either because of an issue in the code or because you cannot"
+            " determine a solution."
+        ),
+    )
 
 
 class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
@@ -89,7 +99,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     def _confirm_env_vars(
         deployment_config: DeploymentConfig,
         env_file_content: str,
-    ) -> Tuple[str, Dict[str, str]]:
+    ) -> str:
         """
         Parses environment variables from LLM response, confirms with user, and returns updated content.
         """
@@ -120,7 +130,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         # Reconstruct env file content
         env_lines = [f'{key}="{value}"' for key, value in final_env_vars_for_file.items()]
-        return "\n".join(env_lines), final_env_vars_for_file
+        return "\n".join(env_lines)
 
     def _get_deploy_docker_compose_path(
         self, environment: DeploymentEnvironment
@@ -183,6 +193,47 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         except subprocess.CalledProcessError as e:
             return f"Ansible playbook execution failed.\nStdout:\n{e.stdout}\n\nStderr:\n{e.stderr}"
 
+    def _deploy_validate_docker_compose(
+        self,
+        deployment_config: DeploymentConfig,
+        environment: DeploymentEnvironment,
+        environment_state: MonolithicDeploymentState,
+        docker_compose_content: DockerComposeContent,
+    ) -> Tuple[bool, str, list[ModelMessage], str]:
+        deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(environment)
+        with open(docker_compose_path, "w", encoding="utf-8") as f:
+            f.write(docker_compose_content.content)
+        print(f"[bold green]docker-compose.yml generated at {docker_compose_path}[/bold green]")
+
+        confirmed_env_content = self._confirm_env_vars(
+            deployment_config,
+            docker_compose_content.env_file_content,
+        )
+
+        deployment_output = self._deploy_docker_compose(
+            deployment_config,
+            environment,
+            environment_state,
+            confirmed_env_content,
+        )
+
+        with WaitingSpinner("Validating deployment logs with LLM..."):
+            log_validation_prompt = DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE.format(
+                container_logs=deployment_output
+            )
+            log_validation_response = self.agent.run_sync(
+                log_validation_prompt,
+                output_type=DockerComposeLogValidation,
+                deps=self.agent_deps,
+            )
+
+        return (
+            log_validation_response.output.is_successful,
+            log_validation_response.output.reason,
+            log_validation_response.new_messages(),
+            confirmed_env_content,
+        )
+
     def _generate_docker_compose(
         self,
         deployment_config: DeploymentConfig,
@@ -240,18 +291,21 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         services_info_yaml = yaml.dump(services_info)
 
-        max_attempts = 3
-        confirmed_env_vars = {}
+        confirmed_env_content = "N/A"
+        is_successful = False
+        docker_compose_content = None
         messages = []
-        for attempt in range(max_attempts):
+        for attempt in range(settings.max_docker_compose_gen_attempts):
+            print(
+                "\n[bold]Attempt"
+                f" {attempt + 1}/{settings.max_docker_compose_gen_attempts}...[/bold]"
+            )
             prompt = DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE.format(
                 base_compose=base_compose,
                 services_info_yaml=services_info_yaml,
                 service_snippets=service_snippets,
                 infra_snippets=infra_snippets,
-                previously_confirmed_env_vars=(
-                    yaml.dump(confirmed_env_vars) if confirmed_env_vars else "N/A"
-                ),
+                previously_confirmed_env_vars=confirmed_env_content,
             )
 
             spinner_text = (
@@ -266,52 +320,59 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     deps=self.agent_deps,
                     message_history=messages,
                 )
+                docker_compose_content = docker_compose_response.output
 
-            deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(
-                environment
-            )
-            with open(docker_compose_path, "w", encoding="utf-8") as f:
-                f.write(docker_compose_response.output.content)
-            print(f"[bold green]docker-compose.yml generated at {docker_compose_path}[/bold green]")
-
-            confirmed_env_content, confirmed_env_vars = self._confirm_env_vars(
-                deployment_config,
-                docker_compose_response.output.env_file_content,
-            )
-
-            deployment_output = self._deploy_docker_compose(
-                deployment_config,
-                environment,
-                environment_state,
-                confirmed_env_content,
-            )
-
-            with WaitingSpinner("Validating deployment logs with LLM..."):
-                log_validation_prompt = DOCKER_COMPOSE_LOG_VALIDATION_PROMPT_TEMPLATE.format(
-                    container_logs=deployment_output
+            if docker_compose_content.give_up:
+                print(
+                    "[bold yellow]LLM indicated it cannot fix the docker-compose file"
+                    f" further: \n{docker_compose_content.reason}.[/bold yellow]"
                 )
-                log_validation_response = self.agent.run_sync(
-                    log_validation_prompt,
-                    output_type=DockerComposeLogValidation,
-                    deps=self.agent_deps,
-                )
+                break
 
-            if log_validation_response.output.is_successful:
+            is_successful, reason, validation_messages, confirmed_env_content = (
+                self._deploy_validate_docker_compose(
+                    deployment_config, environment, environment_state, docker_compose_content
+                )
+            )
+
+            if is_successful:
                 print("[bold green]Docker compose deployment was successful.[/bold green]")
-                return
+                break
+            print(f"Docker compose validation 'failed' with reason: \n {reason}.")
 
-            print(
-                f"[bold yellow]Attempt {attempt + 1}/{max_attempts} failed. Retrying with"
-                " feedback...[/bold yellow]"
-            )
-            messages = (
-                docker_compose_response.new_messages() + log_validation_response.new_messages()
-            )
+            messages = docker_compose_response.new_messages() + validation_messages
         else:
             print(
                 "[bold red]Failed to generate and deploy a valid docker-compose file after"
-                f" {max_attempts} attempts.[/bold red]"
+                f" {settings.max_docker_compose_gen_attempts} attempts.[/bold red]"
             )
+
+            while not is_successful:
+                editor_questions = [
+                    inquirer.Editor(
+                        "docker_compose_file",
+                        message="Would you like to manually edit the Docker Compose file?",
+                        default=lambda _: docker_compose_content.content,  # last generated content
+                    )
+                ]
+                editor_answers = inquirer.prompt(editor_questions)
+                if not editor_answers:
+                    raise OpsmithException("Docker compose generation aborted by user.")
+                docker_compose_content.content = editor_answers["docker_compose_file"]
+
+                is_successful, reason, _, docker_compose_content.env_file_content = (
+                    self._deploy_validate_docker_compose(
+                        deployment_config,
+                        environment,
+                        environment_state,
+                        docker_compose_content,
+                    )
+                )
+
+                print(
+                    f"Dockerfile validation {'succeeded' if is_successful else 'failed'} "
+                    f"with reason: \n {reason}."
+                )
 
     @staticmethod
     def _prompt_for_build_env_vars(

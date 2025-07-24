@@ -86,11 +86,8 @@ Existing Dockerfile Content:
 {existing_dockerfile_content}
 ```
 
-If `validation_feedback` is provided below, it means the previous attempt to validate the Dockerfile failed.
-Use the feedback to correct the Dockerfile.
-```
-{validation_feedback}
-```
+If validation of the Dockerfile failed, the conversation history contains an analysis of the failure.
+Use this feedback to correct the Dockerfile.
 
 Your task is to generate an optimized and production-ready Dockerfile for this service.
 
@@ -105,10 +102,32 @@ Ensure the final Dockerfile:
 
 If more information is required, use the `read_file_content` tool.
 Return a `DockerfileContent` object containing the Dockerfile content.
-If you determine that the Dockerfile is correct and any runtime validation errors are
-not fixable within the Dockerfile itself (e.g., due to missing environment variables),
-set `is_final` to `True` in your response.
+If you are unable to fix the Dockerfile based on the provided feedback because you cannot determine a solution,
+set `give_up` to `True` in your response.
 """
+
+DOCKERFILE_VALIDATION_PROMPT_TEMPLATE = """
+You are an expert DevOps engineer. You have just tried to build a Dockerfile and run the resulting container.
+Below is the output from the build and run process.
+Your task is to analyze this output to determine if the process was successful.
+
+A process is successful if the docker build command completes without errors, and the docker run command either completes successfully (exit code 0) or runs for a long time without errors (for server processes).
+If the build was successful but the container fails to run due to issues that cannot be fixed in the Dockerfile (e.g., missing environment variables, database connection issues), you should also consider it successful.
+
+Build Output:
+```
+{build_output}
+```
+
+Run Output:
+```
+{run_output}
+```
+
+Based on the logs, was the build and run successful?
+Return a `DockerfileValidation` object with `is_successful` set to true or false, and a `reason` if it failed.
+"""
+
 
 MONOLITHIC_MACHINE_REQUIREMENTS_PROMPT_TEMPLATE = """
 You are an expert DevOps engineer. Your task is to select a suitable virtual machine for deploying a monolithic application for hobby/experimental purposes.
@@ -171,10 +190,11 @@ Your job is to combine these into a single valid docker-compose.yml file and pro
 - You must deduce values for variables where possible. For example, if a service needs a database URL and there is a `postgresql` infrastructure dependency, construct the correct connection string (e.g., `postgresql://user:password@postgresql:5432/dbname`). The service name in the docker network will be the key from `infra_snippets` (e.g., `postgresql`).
 - Return the complete content for a `.env` file in the `env_file_content` field. The content should be a string with each variable on a new line, in `KEY="VALUE"` format.
 
-If validation of the docker compose file has failed then the feedback needs to be analyzed.
+If validation of the docker compose file has failed, the conversation history contains an analysis of the failure.
 The feedback contains the output from the deployment attempt and an analysis from an LLM indicating why it failed.
 Use this feedback to correct the `docker-compose.yml` and/or `.env` file content.
 When correcting the file, explain the root cause of the failure in the `reason` field.
+If you are unable to fix the docker-compose.yml based on the provided feedback because you cannot determine a solution, set `give_up` to `True` in your response.
 
 PREVIOUSLY_CONFIRMED_ENV_VARS:
 ```

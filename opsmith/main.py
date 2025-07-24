@@ -32,7 +32,7 @@ from opsmith.utils import (
     slugify,
 )
 
-app = typer.Typer(pretty_exceptions_show_locals=False)
+app = typer.Typer(pretty_exceptions_show_locals=True)
 
 
 def _check_external_dependencies():
