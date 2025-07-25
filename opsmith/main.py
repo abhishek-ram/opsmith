@@ -13,6 +13,7 @@ from opsmith.agent import build_agent
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
 from opsmith.cloud_providers.base import CloudCredentialsError
 from opsmith.deployment_strategies import DEPLOYMENT_STRATEGY_REGISTRY
+from opsmith.git_repo import GitRepo
 from opsmith.models import MODEL_REGISTRY, BaseAiModel
 from opsmith.repo_map import RepoMap
 from opsmith.service_detector import ServiceDetector
@@ -201,6 +202,7 @@ def setup(ctx: typer.Context):
     Identifies services, their languages, types, and frameworks.
     """
     detector = ServiceDetector(src_dir=ctx.obj["src_dir"], agent=ctx.obj["agent"])
+    git_repo = GitRepo(Path(ctx.obj["src_dir"]))
     deployment_config = DeploymentConfig.load(ctx.obj["deployments_path"])
     scan_services = False
 
@@ -270,6 +272,7 @@ def setup(ctx: typer.Context):
             cloud_provider=cloud_details,
         )
         scan_services = True
+        git_repo.ensure_gitignore()
 
     if scan_services:
         print("Scanning your codebase now to detect services, frameworks, and languages...")

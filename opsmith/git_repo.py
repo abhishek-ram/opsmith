@@ -64,3 +64,34 @@ class GitRepo:
         # Construct absolute paths and filter out potential empty strings from split
         absolute_paths = [git_root / p for p in relative_paths if p]
         return absolute_paths
+
+    def ensure_gitignore(self):
+        """Ensures that Terraform state files are included in .gitignore."""
+        gitignore_path = Path(self.repo.working_dir) / ".gitignore"
+
+        ignore_block = [
+            "",
+            "# Opsmith",
+            "# Ignore Terraform state files and directories",
+            "**/.terraform/",
+            "**/*.tfstate",
+            "**/*.tfstate.backup",
+        ]
+        ignore_block_str = "\n".join(ignore_block) + "\n"
+
+        sentinel = "**/.terraform/"
+
+        content = ""
+        if gitignore_path.exists():
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        if sentinel in content:
+            return
+
+        with open(gitignore_path, "a", encoding="utf-8") as f:
+            f.write(ignore_block_str)
+
+        print(
+            "[bold green].gitignore has been updated to ignore Terraform state files.[/bold green]"
+        )
