@@ -12,7 +12,7 @@ class OpsmithSettings(BaseSettings):
     deployments_dir: str = ".opsmith"
     config_filename: str = "deployments.yml"
     max_dockerfile_gen_attempts: int = 3
-    max_docker_compose_gen_attempts: int = 1
+    max_docker_compose_gen_attempts: int = 3
 
     @classmethod
     def settings_customise_sources(
