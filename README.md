@@ -25,6 +25,10 @@ The primary goal of Opsmith is to make cloud deployments accessible to all devel
   - [Deployment Strategies](#deployment-strategies)
     - [Monolithic](#monolithic)
   - [Deployments Directory](#deployments-directory)
+  - [Extending Opsmith](#extending-opsmith)
+    - [Adding a Cloud Provider](#adding-a-cloud-provider)
+    - [Adding a Deployment Strategy](#adding-a-deployment-strategy)
+- [Contributing](#contributing)
 
 ## Getting Started
 
@@ -53,6 +57,7 @@ The primary goal of Opsmith is to make cloud deployments accessible to all devel
     ```shell
     pip install opsmith-cli
     ```
+    On macOS, you might need to use `pip3` if `pip` doesn't work.
 
 ### Deployment Workflow
 
@@ -188,3 +193,51 @@ Here is an overview of what you can find inside the `.opsmith` directory:
 -   `environments/`: This directory holds the state and configuration for each of your deployment environments (e.g., `dev`, `staging`).
     -   `<environment-name>/`: A directory for each environment, containing Terraform state for provisioned infrastructure and other environment-specific files.
     -   `global/`: Contains configurations that are shared across environments within a specific region, such as container registries.
+
+### Extending Opsmith
+
+Opsmith has been designed with extensibility in mind, allowing you to add your own cloud providers and deployment strategies. This is achieved through Python's entry points mechanism, which enables other packages to plug into Opsmith seamlessly.
+
+#### Adding a Cloud Provider
+
+To add a new cloud provider, you need to:
+
+1.  Create a Python class that inherits from `opsmith.cloud_providers.base.BaseCloudProvider` and implements all its abstract methods (`name`, `description`, `get_detail_model`, `get_account_details`, `get_instance_types`, `get_regions`).
+2.  Package your new provider class.
+3.  In your package's `pyproject.toml`, add an entry point under the `[project.entry-points."opsmith.cloud_providers"]` group.
+
+Example `pyproject.toml` entry:
+
+```toml
+[project.entry-points."opsmith.cloud_providers"]
+my-provider = "my_opsmith_plugin.providers:MyCloudProvider"
+```
+
+Once your package is installed in the same environment as `opsmith-cli`, Opsmith will automatically discover and register your new provider.
+
+#### Adding a Deployment Strategy
+
+Similarly, you can add a new deployment strategy by:
+
+1.  Creating a Python class that inherits from `opsmith.deployment_strategies.base.BaseDeploymentStrategy` and implements its abstract methods (`name`, `description`, `deploy`, `release`, `destroy`, `run`).
+2.  Packaging your new strategy class.
+3.  In your package's `pyproject.toml`, add an entry point under the `[project.entry-points."opsmith.deployment_strategies"]` group.
+
+Example `pyproject.toml` entry:
+
+```toml
+[project.entry-points."opsmith.deployment_strategies"]
+my-strategy = "my_opsmith_plugin.strategies:MyStrategy"
+```
+
+After installation, your custom deployment strategy will be available for selection when creating a new environment.
+
+## Contributing
+
+We welcome contributions to Opsmith! If you're interested in helping improve the tool, here are a few ways to get started:
+
+-   **Reporting Bugs**: If you encounter a bug, please open an issue on our GitHub repository. Include as much detail as possible, such as your operating system, the command you ran, and the full error message.
+-   **Suggesting Enhancements**: Have an idea for a new feature or an improvement to an existing one? We'd love to hear it. Open an issue to start a discussion.
+-   **Submitting Pull Requests**: If you'd like to contribute code, please fork the repository and submit a pull request. For major changes, it's best to discuss your idea in an issue first.
+
+When contributing, please follow our [engineering conventions](./CONVENTIONS.md) and ensure your code is formatted with `black`.
