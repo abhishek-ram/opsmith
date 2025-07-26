@@ -49,6 +49,9 @@ include-package-data = true
 [tool.hatch.build.targets.wheel]
 packages = ["opsmith"]
 
+[tool.codespell]
+skip = '*.svg'
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
