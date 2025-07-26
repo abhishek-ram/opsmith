@@ -20,3 +20,4 @@ repos:
       - id: codespell
         additional_dependencies:
           - tomli
+        args:  ["--skip=\"*.svg\""]
