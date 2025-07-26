@@ -70,7 +70,9 @@ Deploying your application with Opsmith follows a straightforward workflow:
     ```shell
     opsmith --model <your-llm-provider:model-name> --api-key <your-api-key> setup
     ```
-
+    <p >
+      <img width="600" src="https://raw.githubusercontent.com/abhishek-ram/opsmith-cli/main/resources/setup_demo.svg" alt="Opsmith Setup">
+    </p>
     You will be prompted to:
     -   Provide an application name.
     -   Select a cloud provider (e.g., AWS, GCP — see [Cloud Providers](#cloud-providers) for setup).
