@@ -162,7 +162,7 @@ class BaseDeploymentStrategy(abc.ABC):
         registry_url: str,
     ) -> Dict[str, str]:
         """Builds and pushes Docker images for each service."""
-        print("\n[bold blue]Starting to build and push images...[/bold blue]")
+        print("\n[bold blue]Build and push container images to the registry[/bold blue]")
 
         images = {}
 
@@ -237,7 +237,7 @@ class BaseDeploymentStrategy(abc.ABC):
         :return: The content of the found SSH public key as a string.
         :rtype: str
         """
-        print("\n[bold blue]Checking for local SSH public key...[/bold blue]")
+        print("\n[bold blue]Looking up the local SSH public key[/bold blue]")
         system = platform.system().lower()
 
         # Common SSH key names
@@ -342,10 +342,10 @@ class BaseDeploymentStrategy(abc.ABC):
                 print("[bold red]Could not find 'ansible_user' in Terraform outputs.[/bold red]")
                 raise ValueError("Could not find 'ansible_user' in Terraform outputs.")
 
-            print("\n[bold blue]Waiting 15 seconds for instance to become ready...[/bold blue]")
+            print("[bold blue]Waiting 15 seconds for instance to become ready...[/bold blue]")
             time.sleep(15)
 
-            print("\n[bold blue]Setting up Docker on the new instance...[/bold blue]")
+            print("\n[bold blue]Setting up Docker on the newly created VM[/bold blue]")
 
             setup_docker_path = (
                 self.deployments_path / "environments" / environment.name / "docker_setup"

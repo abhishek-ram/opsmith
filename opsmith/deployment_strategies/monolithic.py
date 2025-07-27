@@ -153,14 +153,13 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         """
         Deploys the docker-compose stack and returns container logs for validation.
         """
-        print("\n[bold blue]Deploying docker-compose stack...[/bold blue]")
+        print("\n[bold blue]Deploying docker-compose stack to the VM \n[/bold blue]")
         ansible_user, instance_public_ip = (
             environment_state.virtual_machine.user,
             environment_state.virtual_machine.public_ip,
         )
         deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(environment)
 
-        print("\n[bold blue]Attempting to deploy and get logs...[/bold blue]")
         ansible_runner = AnsibleProvisioner(working_dir=deploy_compose_path)
         ansible_runner.copy_template(
             "docker_compose_deploy", deployment_config.cloud_provider_instance.name().lower()
@@ -241,8 +240,6 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         images: Dict[str, str],
         environment_state: MonolithicDeploymentState,
     ):
-        print("\n[bold blue]Generating docker-compose file...[/bold blue]")
-
         base_compose_template = self.docker_compose_snippets_env.get_template("base.yml")
         base_compose = base_compose_template.render(app_name=deployment_config.app_name_slug)
 
@@ -297,8 +294,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         messages = []
         for attempt in range(settings.max_docker_compose_gen_attempts):
             print(
-                "\n[bold]Attempt"
-                f" {attempt + 1}/{settings.max_docker_compose_gen_attempts}...[/bold]"
+                "\n[bold blue]Generating docker-compose file, Attempt"
+                f" {attempt + 1}/{settings.max_docker_compose_gen_attempts}[/bold blue]"
             )
             prompt = DOCKER_COMPOSE_GENERATION_PROMPT_TEMPLATE.format(
                 base_compose=base_compose,
@@ -338,7 +335,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             if is_successful:
                 print("[bold green]Docker compose deployment was successful.[/bold green]")
                 break
-            print(f"Docker compose validation 'failed' with reason: \n {reason}.")
+            print(f"[red]Docker compose validation 'failed' with reason[/red]: \n {reason}.")
 
             messages = docker_compose_response.new_messages() + validation_messages
         else:
@@ -699,7 +696,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
             print(
                 "\n[bold blue]Setting up container registry for region"
-                f" '{environment.region}'...[/bold blue]"
+                f" '{environment.region}'... \n[/bold blue]"
             )
             registry_url = self._setup_container_registry(deployment_config, environment)
             images = self._build_and_push_images(deployment_config, environment, registry_url)
@@ -743,15 +740,15 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 )
             self._confirm_dns_records(dns_records)
 
+            env_state.registry_url = registry_url
+            env_state.virtual_machine = virtual_machine_state
+            self._generate_docker_compose(deployment_config, environment, images, env_state)
+
             for domain in environment.get_domains_for_services(other_services):
                 print(
                     "\n[bold green]Your website is available at:"
                     f" https://{domain.domain_name}[/bold green]"
                 )
-
-            env_state.registry_url = registry_url
-            env_state.virtual_machine = virtual_machine_state
-            self._generate_docker_compose(deployment_config, environment, images, env_state)
 
         env_state.save(env_state_path)
         print(f"Monolithic deployment state saved to {env_state_path}")

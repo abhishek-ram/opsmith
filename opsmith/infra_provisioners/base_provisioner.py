@@ -45,14 +45,12 @@ class BaseInfrastructureProvisioner:
         # Use shutil.copytree to copy the contents of the template directory
         shutil.copytree(template_dir, self.working_dir, dirs_exist_ok=True)
 
-        print(f"[green]{self.command_name} files copied to: {self.working_dir}[/green]")
+        print(f"[grey50]{self.command_name} files copied to: {self.working_dir}[/grey50]")
 
     def _run_command(
         self, command: List[str], env: Optional[Dict[str, str]] = None
     ) -> Dict[str, str]:
         """Runs a command and streams its output."""
-        print(f"\n[bold]Running `{self.command_name}` in {self.working_dir}...[/bold]")
-
         process_env = os.environ.copy()
         process_env.update(env or {})
         outputs = {}
