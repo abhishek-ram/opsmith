@@ -130,19 +130,29 @@ class ServiceDetector:
         service_dir_path = self.deployments_path / "docker" / service.name_slug
         service_dir_path.mkdir(parents=True, exist_ok=True)
         dockerfile_path_abs = service_dir_path / "Dockerfile"
-        print(
-            "\n[bold]Generating Dockerfile for service:"
-            f" {service.language} ({service.service_type})...[/bold]"
-        )
+        print(f"\n[bold]Generating Dockerfile for service: {service.name_slug}...[/bold]")
 
-        dockerfile_content = self._generate_and_validate_dockerfile(service, dockerfile_path_abs)
+        template_name = f"{service.language.lower()}_{service.service_type.value.lower()}"
+        template_path = Path(__file__).parent / "templates" / "dockerfiles" / template_name
+        dockerfile_template = None
+        if template_path.exists():
+            with open(template_path, "r", encoding="utf-8") as f:
+                dockerfile_template = f.read()
+            print(f"[green]Using Dockerfile template: {template_name}[/green]")
+
+        dockerfile_content = self._generate_and_validate_dockerfile(
+            service, dockerfile_path_abs, dockerfile_template
+        )
 
         with open(dockerfile_path_abs, "w", encoding="utf-8") as f:
             f.write(dockerfile_content)
         print(f"[green]Dockerfile saved to: {dockerfile_path_abs}[/green]")
 
     def _generate_and_validate_dockerfile(
-        self, service: ServiceInfo, dockerfile_path_abs: Path
+        self,
+        service: ServiceInfo,
+        dockerfile_path_abs: Path,
+        dockerfile_template: Optional[str] = None,
     ) -> str:
         """Generates and validates a Dockerfile for a given service."""
         existing_dockerfile_content = "N/A"
@@ -159,9 +169,21 @@ class ServiceDetector:
         while attempt < settings.max_dockerfile_gen_attempts:
             attempt += 1
             print(f"\n[bold]Attempt {attempt}/{settings.max_dockerfile_gen_attempts}...[/bold]")
+
+            repo_map_str = self.repo_map.get_repo_map()
+            template_section = ""
+            if dockerfile_template:
+                template_section = (
+                    "A Dockerfile template is provided below. Use it as a guide.\n"
+                    "```\n"
+                    f"{dockerfile_template}\n"
+                    "```\n"
+                )
+
             prompt = DOCKERFILE_GENERATION_PROMPT_TEMPLATE.format(
                 service_info_yaml=service_info_yaml,
-                repo_map_str=self.repo_map.get_repo_map(),
+                template_section=template_section,
+                repo_map_str=repo_map_str,
                 existing_dockerfile_content=existing_dockerfile_content,
             )
             with WaitingSpinner(text="Waiting for the LLM to generate the Dockerfile"):
@@ -182,10 +204,9 @@ class ServiceDetector:
                 )
                 break
 
-            with WaitingSpinner(text="Validating generated Dockerfile"):
-                is_successful, reason, validation_messages = self._validate_dockerfile(
-                    dockerfile_content
-                )
+            is_successful, reason, validation_messages = self._validate_dockerfile(
+                dockerfile_content
+            )
 
             if is_successful:
                 print(f"[bold green]Dockerfile validation successful: \n {reason}.[/bold green]")
@@ -209,12 +230,11 @@ class ServiceDetector:
                 raise OpsmithException("Dockerfile generation aborted by user.")
             dockerfile_content = editor_answers["dockerfile"]
 
-            with WaitingSpinner(text="Validating generated Dockerfile"):
-                completed, reason, _ = self._validate_dockerfile(dockerfile_content)
-                print(
-                    f"Dockerfile validation {'succeeded' if completed else 'failed'} "
-                    f"with reason: \n {reason}."
-                )
+            completed, reason, _ = self._validate_dockerfile(dockerfile_content)
+            print(
+                f"Dockerfile validation {'succeeded' if completed else 'failed'} "
+                f"with reason: \n {reason}."
+            )
 
         return dockerfile_content
 
@@ -328,11 +348,12 @@ class ServiceDetector:
                 build_output=build_output_str,
                 run_output=run_output_str,
             )
-            validation_response = self.agent.run_sync(
-                validation_prompt,
-                output_type=DockerfileValidation,
-                deps=self.agent_deps,
-            )
+            with WaitingSpinner(text="Waiting for the LLM to validate the Docker build output"):
+                validation_response = self.agent.run_sync(
+                    validation_prompt,
+                    output_type=DockerfileValidation,
+                    deps=self.agent_deps,
+                )
             return (
                 validation_response.output.is_successful,
                 validation_response.output.reason,

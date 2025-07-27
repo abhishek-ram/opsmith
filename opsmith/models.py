@@ -101,6 +101,7 @@ class ModelRegistry:
         """Load built-in models"""
         for model_cls in [
             OpenAIGPT41,
+            OpenAIGPTO3,
             AnthropicClaudeSonnet37,
             AnthropicClaudeSonnet4,
             GoogleGlaGemini25Pro,
@@ -139,13 +140,13 @@ class OpenAIGPT41(BaseAiModel):
     @classmethod
     def get_model_settings(cls) -> ModelSettings:
         """Returns model-specific settings."""
-        return OpenAIModelSettings(openai_reasoning_effort="high")
+        return OpenAIModelSettings()
 
 
 class OpenAIGPTO3(BaseAiModel):
     @classmethod
     def name(cls) -> str:
-        return "gpt-o3"
+        return "o3"
 
     @classmethod
     def provider(cls) -> str:

@@ -70,6 +70,8 @@ service described below.
 Service Details:
 {service_info_yaml}
 
+{template_section}
+
 Repository Map:
 {repo_map_str}
 

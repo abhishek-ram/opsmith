@@ -1,0 +1,77 @@
+# Multi-stage Docker build for Python Backend Worker
+
+# Build stage - for compiling dependencies and reducing final image size
+FROM PYTHON_SLIM_IMAGE as builder
+
+# Set build arguments for customization
+ARG APP_USER=worker
+ARG APP_DIR=/app
+
+# Create application directory
+WORKDIR ${APP_DIR}
+
+# Copy dependency files first (for better layer caching)
+# TEMPLATE_INSTRUCTION: Copy all possible dependency files your project might have
+
+# Install Python dependencies
+# TEMPLATE_INSTRUCTION: Use the configured dependency manager to install the requirements
+# This list covers common package managers but is not exhaustive - adapt based on project structure
+
+# For pip with requirements.txt:
+# RUN pip install --no-cache-dir --user -r requirements.txt
+
+# For Poetry:
+# RUN pip install poetry && \
+#     poetry config virtualenvs.create false && \
+#     poetry install --only=main --no-dev
+
+# For PDM:
+# RUN pip install pdm && \
+#     pdm install --prod --no-editable
+
+# For uv:
+# RUN pip install uv && \
+#     uv pip install --system .
+
+# For Pipenv:
+# RUN pip install pipenv && \
+#     pipenv install --system --deploy
+
+# TEMPLATE_INSTRUCTION: Copy the rest of the application code
+
+# Production stage - minimal runtime image
+FROM PYTHON_SLIM_IMAGE as runner
+
+# Set build arguments
+ARG APP_USER=worker
+ARG APP_DIR=/app
+
+# Set environment variables for Python optimization and worker-specific settings
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONHASHSEED=random \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Create non-root user for security
+RUN groupadd -r ${APP_USER} && \
+    useradd -r -g ${APP_USER} -d ${APP_DIR} -s /sbin/nologin ${APP_USER}
+
+# Create application directory and set permissions
+RUN mkdir -p ${APP_DIR} && chown -R ${APP_USER}:${APP_USER} ${APP_DIR}
+
+# Set working directory
+WORKDIR ${APP_DIR}
+
+# TEMPLATE_INSTRUCTION: Copy the installed Python packages and binaries from the builder stage
+
+# TEMPLATE_INSTRUCTION: Copy the application code from the builder stage and set ownership
+
+# TEMPLATE_INSTRUCTION: Add framework-specific build steps if any here
+
+# Switch to non-root user
+USER ${APP_USER}
+
+# TEMPLATE_INSTRUCTION: Update PATH to include user local binaries and set PYTHONPATH
+
+# TEMPLATE_INSTRUCTION: Choose the appropriate command to startup the worker framework

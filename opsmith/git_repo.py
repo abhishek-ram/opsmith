@@ -93,5 +93,6 @@ class GitRepo:
             f.write(ignore_block_str)
 
         print(
-            "[bold green].gitignore has been updated to ignore Terraform state files.[/bold green]"
+            "[bold green].gitignore has been updated to ignore Terraform state files.\n[/bold"
+            " green]"
         )
