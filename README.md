@@ -73,12 +73,7 @@ Deploying your application with Opsmith follows a straightforward workflow:
     <p >
       <img width="600" src="https://raw.githubusercontent.com/abhishek-ram/opsmith-cli/main/resources/setup_demo.svg" alt="Opsmith Setup">
     </p>
-    You will be prompted to:
-    -   Provide an application name.
-    -   Select a cloud provider (e.g., AWS, GCP — see [Cloud Providers](#cloud-providers) for setup).
-    -   Review and confirm the services and infrastructure dependencies detected by the AI.
-    -   Opsmith will then generate a `Dockerfile` for each of your services.
-
+    
 2.  **Deploy Your Application**
 
     After setting up the configuration, deploy your application using the `deploy` command:
@@ -87,13 +82,9 @@ Deploying your application with Opsmith follows a straightforward workflow:
     opsmith --model <your-llm-provider:model-name> --api-key <your-api-key> deploy
     ```
 
-    This will guide you through:
-    -   Creating a new deployment environment (e.g., `dev`, `staging`, `production`).
-    -   Selecting a cloud region.
-    -   Choosing a deployment strategy (e.g., `Monolithic`).
-    -   Configuring domain names for your services if needed.
-
-    Opsmith will then provision all the necessary cloud infrastructure and deploy your application.
+    <p >
+      <img width="600" src="https://raw.githubusercontent.com/abhishek-ram/opsmith-cli/main/resources/deploy_demo.svg" alt="Opsmith Setup">
+    </p>
 
 3.  **Manage Your Deployments**
 
