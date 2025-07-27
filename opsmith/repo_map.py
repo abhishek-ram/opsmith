@@ -88,6 +88,9 @@ class RepoMap:
         self.src_dir = Path(src_dir).resolve()
         self.git_repo = GitRepo(self.src_dir)
         self.verbose = verbose
+        self.tracked_files: List[Path] = self.git_repo.get_git_tracked_files(
+            [str(self.src_dir), ":!**/*test*"]
+        )
 
         # Initialize tracking variables
         self.warned_files = set()
@@ -146,9 +149,7 @@ class RepoMap:
         if self.max_map_tokens <= 0:
             return None  # Repo map is disabled
 
-        all_tracked_files_paths = self.git_repo.get_git_tracked_files(
-            [str(self.src_dir), ":!**/*test*"]
-        )
+        all_tracked_files_paths = self.tracked_files
         if not all_tracked_files_paths:
             if self.verbose:
                 typer.echo("RepoMap: No git-tracked files found.", err=True)

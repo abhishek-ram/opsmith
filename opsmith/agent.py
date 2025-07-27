@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Type
 
@@ -13,6 +13,7 @@ from opsmith.utils import generate_secret_string
 @dataclass
 class AgentDeps:
     src_dir: Path
+    tracked_files: List[Path] = field(default_factory=list)
 
 
 def is_duplicate_tool_call(ctx: RunContext[AgentDeps], tool_name: str) -> bool:
@@ -64,6 +65,7 @@ def build_agent(model_config: Type[BaseAiModel], instrument: bool = False) -> Ag
                 "files in this conversation."
             )
 
+        allowed_files_abs = {str(p) for p in ctx.deps.tracked_files}
         contents = []
         for filename in filenames:
             if Path(filename).is_absolute():
@@ -73,6 +75,9 @@ def build_agent(model_config: Type[BaseAiModel], instrument: bool = False) -> Ag
                 )
 
             absolute_file_path = ctx.deps.src_dir.joinpath(filename).resolve()
+
+            if str(absolute_file_path) not in allowed_files_abs:
+                raise ModelRetry(f"File '{filename}' is not in the repo map and cannot be read.")
 
             if not str(absolute_file_path).startswith(str(ctx.deps.src_dir)):
                 raise ModelRetry(

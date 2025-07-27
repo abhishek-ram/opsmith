@@ -67,11 +67,13 @@ class ServiceDetector:
         verbose: bool = False,
     ):
         self.deployments_path = Path(src_dir).joinpath(settings.deployments_dir)
-        self.agent_deps = AgentDeps(src_dir=Path(src_dir))
         self.agent = agent
         self.repo_map = RepoMap(
             src_dir=src_dir,
             verbose=verbose,
+        )
+        self.agent_deps = AgentDeps(
+            src_dir=Path(src_dir), tracked_files=self.repo_map.tracked_files
         )
         self.verbose = verbose
 
