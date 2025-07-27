@@ -112,14 +112,14 @@ Opsmith leverages Large Language Models (LLMs) to analyze your codebase, generat
 
 Opsmith supports a variety of models from different providers. Here is a list of the currently supported models:
 
+- **Google** (Recommended):
+  - `google-gla:gemini-2.5-pro`
 - **OpenAI**:
   - `openai:gpt-4.1`
   - `openai:gpt-o3`
 - **Anthropic**:
   - `anthropic:claude-3-7-sonnet-20250219`
   - `anthropic:claude-sonnet-4-20250514`
-- **Google**:
-  - `google-gla:gemini-2.5-pro`
 
 #### Usage
 
