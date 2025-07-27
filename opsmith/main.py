@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Annotated, Optional, Type
+from typing import Annotated, Optional, Type, Union
 
 import inquirer
 import logfire
@@ -33,7 +33,7 @@ from opsmith.utils import (
     slugify,
 )
 
-app = typer.Typer(pretty_exceptions_show_locals=True)
+app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 def _check_external_dependencies():
@@ -52,7 +52,7 @@ def _check_external_dependencies():
         raise typer.Exit(code=1)
 
 
-def parse_model_arg(model: str) -> Type[BaseAiModel]:
+def _parse_model_arg(model: Union[str, BaseAiModel]) -> BaseAiModel:
     """
     Fetches the class corresponding to the given model name.
 
@@ -69,6 +69,8 @@ def parse_model_arg(model: str) -> Type[BaseAiModel]:
     :raises ValueError: If the given model name is not found in the model registry.
     :raises typer.BadParameter: If the provided model name is unsupported.
     """
+    if isinstance(model, BaseAiModel):
+        return model
     try:
         return MODEL_REGISTRY.get_model_class(model)()
     except ValueError:
@@ -77,7 +79,7 @@ def parse_model_arg(model: str) -> Type[BaseAiModel]:
         )
 
 
-def api_key_callback(ctx: typer.Context, value: str):
+def _api_key_callback(ctx: typer.Context, value: str):
     """
     This function serves as a callback for validating and processing an API key when
     used in conjunction with a command-line interface. The function checks whether
@@ -111,18 +113,21 @@ def main(
     model: Annotated[
         Type[BaseAiModel],
         typer.Option(
-            parser=parse_model_arg,
+            parser=_parse_model_arg,
             help="The LLM model to be used for by the AI Agent.",
+            prompt="Select the LLM model to be used for by the AI Agent",
         ),
     ],
     api_key: Annotated[
         str,
         typer.Option(
-            callback=api_key_callback,
+            callback=_api_key_callback,
             help=(
                 "The API KEY to be used for by the AI Agent. This is the API key for the specified"
                 " model."
             ),
+            prompt="Enter the API KEY for the specified model",
+            hide_input=True,
         ),
     ],
     logfire_token: Optional[str] = typer.Option(
@@ -135,6 +140,7 @@ def main(
     src_dir: Optional[str] = typer.Option(
         default=None,
         help="Source directory to be used by the command. Defaults to current working directory.",
+        envvar="OPSMITH_SRC_DIR",
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose output for repo map generation."
@@ -227,7 +233,7 @@ def setup(ctx: typer.Context):
             scan_services = True
 
     else:
-        print("No existing deployment configuration found. Starting analysis...")
+        print("No existing deployment configuration found. Starting analysis...\n")
         app_name_questions = [
             inquirer.Text("app_name", message="Enter the application name"),
         ]
@@ -252,7 +258,7 @@ def setup(ctx: typer.Context):
         selected_provider_value = provider_answers["cloud_provider"]
 
         # Get cloud details if new or changed
-        print(f"Initializing {selected_provider_value} provider...")
+        print(f"Initializing {selected_provider_value} provider...\n")
         provider_class = CLOUD_PROVIDER_REGISTRY.get_provider_class(selected_provider_value)
         try:
             cloud_details = provider_class.get_account_details().model_dump(mode="json")
