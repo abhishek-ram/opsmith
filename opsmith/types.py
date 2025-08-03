@@ -170,6 +170,7 @@ class DeploymentEnvironment(BaseModel):
     name: str = Field(
         ..., description="The name of the environment (e.g., 'staging', 'production')."
     )
+    cloud_provider: dict = Field(..., description="Cloud provider specific details.")
     region: str = Field(..., description="The cloud provider region for this environment.")
     strategy: str = Field(..., description="The deployment strategy for this environment.")
     domain_email: Optional[str] = Field(
@@ -189,13 +190,18 @@ class DeploymentEnvironment(BaseModel):
                 domains.append(domains_by_service_name_slug[service.name_slug])
         return domains
 
+    @property
+    def cloud_provider_instance(self) -> BaseCloudProvider:
+        """Retrieves a cloud provider instance by name."""
+        provider_cls = CLOUD_PROVIDER_REGISTRY.get_provider_class(self.cloud_provider.get("name"))
+        return provider_cls(self.cloud_provider)
+
 
 class DeploymentConfig(ServiceList):
     """Describes the deployment config for the repository, listing all services."""
 
     app_name: str = Field(..., description="The name of the application.")
     app_name_slug: str = Field(..., description="The slugified name of the application.")
-    cloud_provider: dict = Field(..., description="Cloud provider specific details.")
     environments: List[DeploymentEnvironment] = Field(
         default_factory=list, description="A list of deployment environments."
     )
@@ -210,12 +216,6 @@ class DeploymentConfig(ServiceList):
             if env.name == name:
                 return env
         raise ValueError(f"Environment '{name}' not found in the deployment configuration.")
-
-    @property
-    def cloud_provider_instance(self) -> BaseCloudProvider:
-        """Retrieves a cloud provider instance by name."""
-        provider_cls = CLOUD_PROVIDER_REGISTRY.get_provider_class(self.cloud_provider.get("name"))
-        return provider_cls(self.cloud_provider)
 
     def get_env_var_defaults(self) -> dict:
         """Retrieves a dictionary of environment variable defaults."""

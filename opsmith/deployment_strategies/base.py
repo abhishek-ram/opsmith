@@ -113,14 +113,14 @@ class BaseDeploymentStrategy(abc.ABC):
         # Registry name should probably be unique per region for the app
         registry_name = slugify(f"{app_name}-{environment.region}")
 
-        cloud_provider_instance = deployment_config.cloud_provider_instance
+        cloud_provider_instance = environment.cloud_provider_instance
         provider_name = cloud_provider_instance.name()
 
         registry_infra_path = (
             self.deployments_path
             / "environments"
             / "global"
-            / environment.region
+            / f"{cloud_provider_instance.name()}-{environment.region}"
             / "container_registry"
         )
         tf = TerraformProvisioner(working_dir=registry_infra_path)
@@ -201,7 +201,7 @@ class BaseDeploymentStrategy(abc.ABC):
 
             ansible_runner = AnsibleProvisioner(working_dir=build_infra_path)
 
-            provider_name = deployment_config.cloud_provider["name"].lower()
+            provider_name = environment.cloud_provider["name"].lower()
 
             extra_vars = {
                 "docker_path": str(self.agent_deps.src_dir),

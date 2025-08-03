@@ -243,39 +243,9 @@ def setup(ctx: typer.Context):
             raise typer.Exit(code=1)
         app_name = app_name_answers["app_name"]
 
-        provider_questions = [
-            inquirer.List(
-                "cloud_provider",
-                message="Select the cloud provider for deployment",
-                choices=CLOUD_PROVIDER_REGISTRY.choices,
-            ),
-        ]
-        provider_answers = inquirer.prompt(provider_questions)
-        if not provider_answers:
-            print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
-            raise typer.Exit(code=1)
-
-        selected_provider_value = provider_answers["cloud_provider"]
-
-        # Get cloud details if new or changed
-        print(f"Initializing {selected_provider_value} provider...\n")
-        provider_class = CLOUD_PROVIDER_REGISTRY.get_provider_class(selected_provider_value)
-        try:
-            cloud_details = provider_class.get_account_details().model_dump(mode="json")
-        except CloudCredentialsError as e:
-            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
-            raise typer.Exit(code=1)
-        except Exception as e:
-            print(
-                "[bold red]An unexpected error occurred while initializing cloud provider or"
-                f" fetching details: {e}. Aborting.[/bold red]"
-            )
-            raise typer.Exit(code=1)
-
         deployment_config = DeploymentConfig(
             app_name=app_name,
             app_name_slug=slugify(app_name),
-            cloud_provider=cloud_details,
         )
         scan_services = True
         git_repo.ensure_gitignore()
@@ -369,10 +339,39 @@ def deploy(ctx: typer.Context):
     selected_env_name = answers["environment"]
 
     if selected_env_name == "<Create a new environment>":
+        provider_questions = [
+            inquirer.List(
+                "cloud_provider",
+                message="Select the cloud provider for deployment",
+                choices=CLOUD_PROVIDER_REGISTRY.choices,
+            ),
+        ]
+        provider_answers = inquirer.prompt(provider_questions)
+        if not provider_answers:
+            print("[bold red]Cloud provider selection is required. Aborting.[/bold red]")
+            raise typer.Exit(code=1)
+
+        selected_provider_value = provider_answers["cloud_provider"]
+
+        # Initialize the provider
+        print(f"Initializing {selected_provider_value} provider...\n")
+        provider_class = CLOUD_PROVIDER_REGISTRY.get_provider_class(selected_provider_value)
+        try:
+            cloud_details = provider_class.get_account_details().model_dump(mode="json")
+        except CloudCredentialsError as e:
+            print(f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]")
+            raise typer.Exit(code=1)
+        except Exception as e:
+            print(
+                "[bold red]An unexpected error occurred while initializing cloud provider or"
+                f" fetching details: {e}. Aborting.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+
         # Get cloud provider to fetch regions
         with WaitingSpinner(text="Fetching regions from your cloud provider"):
             try:
-                provider_instance = deployment_config.cloud_provider_instance
+                provider_instance = provider_class(cloud_details)
                 regions = provider_instance.get_regions()
             except CloudCredentialsError as e:
                 print(
@@ -466,6 +465,7 @@ def deploy(ctx: typer.Context):
 
         new_env = DeploymentEnvironment(
             name=selected_env_name,
+            cloud_provider=cloud_details,
             region=selected_region,
             strategy=selected_strategy,
             domains=domains,

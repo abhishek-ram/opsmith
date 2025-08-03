@@ -162,7 +162,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         ansible_runner = AnsibleProvisioner(working_dir=deploy_compose_path)
         ansible_runner.copy_template(
-            "docker_compose_deploy", deployment_config.cloud_provider_instance.name().lower()
+            "docker_compose_deploy", environment.cloud_provider_instance.name().lower()
         )
 
         traefik_template = self.docker_compose_snippets_env.get_template("traefik.yml")
@@ -634,7 +634,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             s for s in deployment_config.services if s.service_type != ServiceTypeEnum.FRONTEND
         ]
 
-        cloud_provider = deployment_config.cloud_provider_instance
+        cloud_provider = environment.cloud_provider_instance
         env_state_path = self._get_env_state_path(environment.name)
 
         env_state = MonolithicDeploymentState()
@@ -761,7 +761,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         """Deploys the application."""
         env_state_path = self._get_env_state_path(environment.name)
         env_state = MonolithicDeploymentState.load(env_state_path)
-        cloud_provider = deployment_config.cloud_provider_instance
+        cloud_provider = environment.cloud_provider_instance
         state_updated = False
 
         # Release frontend services
@@ -839,7 +839,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     ):
         """Destroys the environment's infrastructure."""
         print("\n[bold blue]Destroying monolithic environment...[/bold blue]")
-        cloud_provider = deployment_config.cloud_provider_instance
+        cloud_provider = environment.cloud_provider_instance
 
         env_state_path = self._get_env_state_path(environment.name)
         if not env_state_path.exists():
@@ -960,7 +960,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 self.deployments_path
                 / "environments"
                 / "global"
-                / environment.region
+                / f"{cloud_provider.name()}-{environment.region}"
                 / "container_registry"
             )
 
