@@ -45,9 +45,9 @@ def build_agent(model_config: Type[BaseAiModel], instrument: bool = False) -> Ag
     )
 
     @agent.tool(retries=5)
-    def read_file_content(ctx: RunContext[AgentDeps], filenames: List[str]) -> List[str]:
+    def read_repo_files(ctx: RunContext[AgentDeps], filenames: List[str]) -> List[str]:
         """
-        Reads and returns the content of specified files from the repository.
+        Reads and returns the content of specified files from the repo.
         Use this to understand file structures, dependencies, or specific configurations.
         Provide the relative file paths from the repository root.
 
@@ -59,9 +59,9 @@ def build_agent(model_config: Type[BaseAiModel], instrument: bool = False) -> Ag
             A list of strings, where each string is the content of the corresponding file.
             The order of contents in the list matches the order of filenames in the input.
         """
-        if is_duplicate_tool_call(ctx, "read_file_content"):
+        if is_duplicate_tool_call(ctx, "read_repo_files"):
             raise ModelRetry(
-                "The tool 'read_file_content' has already been called with the exact same list of "
+                "The tool 'read_repo_files' has already been called with the exact same list of "
                 "files in this conversation."
             )
 
