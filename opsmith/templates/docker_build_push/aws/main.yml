@@ -5,46 +5,68 @@
 
   vars:
     # These variables are expected to be passed via --extra-vars
-    # dockerfile_path: "path/to/Dockerfile_directory"
-    # dockerfile_name: "Dockerfile"
+    # docker_path: "path/to/build/folder"
+    # dockerfile_path: "Dockerfile"
     # image_name_slug: "my-service"
     # registry_url: "registry.com/my-repo"
     # image_tag_name: "latest"
     # region: "us-east-1"
     image_name: "{{ registry_url }}"
     image_tag: "{{ image_name_slug }}-{{ image_tag_name }}"
+    registry_host: "{{ registry_url.split('/')[0] }}"
 
   tasks:
+    - name: Setup Docker Buildx
+      shell: |
+        docker buildx create --use --name multiarch-builder || docker buildx use multiarch-builder
+      ignore_errors: yes
+
     - name: "Login to AWS ECR"
       block:
         - name: Get ECR login password
           command: "aws ecr get-login-password --region {{ region }}"
           register: ecr_login
 
-        - name: Login to ECR
-          command: "docker login --username AWS --password {{ ecr_login.stdout }} {{ registry_url.split('/')[0] }}"
-          no_log: true
+        - name: Login to ECR using docker_login
+          community.docker.docker_login:
+            registry_url: "{{ registry_host }}"
+            username: AWS
+            password: "{{ ecr_login.stdout }}"
+            reauthorize: yes
 
       rescue:
         - name: Handle login failure
           fail:
             msg: "Failed to login to AWS ECR. Please check your credentials."
 
-    - name: Build platform-specific images
-      shell: |
-        docker build \
-          --platform linux/amd64,linux/arm64 \
-          --file {{ dockerfile_name }} \
-          --tag {{ image_name }}:{{ image_tag }} \
-          {{ docker_path }}
-      register: image_build_result
+    - name: Build and push multi-platform image
+      block:
+      - name: Build and push Docker image
+        shell: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file {{ dockerfile_path }} \
+            --tag {{ image_name }}:{{ image_tag }} \
+            --push \
+            --progress=plain \
+            {{ docker_path }}
+        register: image_build_result
 
-    - name: Push Docker image
-      community.docker.docker_image:
-        name: "{{ image_name }}:{{ image_tag }}"
-        push: yes
-        source: local
-      when: image_build_result is succeeded
+      - name: Verify image was pushed
+        command: "docker manifest inspect {{ image_name }}:{{ image_tag }}"
+        register: manifest_check
+        changed_when: false
+
+    - name: Cleanup
+      block:
+      - name: Logout from ECR
+        community.docker.docker_login:
+          registry_url: "{{ registry_host }}"
+          state: absent
+
+      - name: Remove buildx builder
+        shell: "docker buildx rm multiarch-builder"
+        ignore_errors: yes
 
     - name: Print image URL
       debug:

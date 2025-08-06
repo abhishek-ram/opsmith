@@ -5,40 +5,52 @@
 
   vars:
     # These variables are expected to be passed via --extra-vars
-    # dockerfile_path: "path/to/Dockerfile_directory"
-    # dockerfile_name: "Dockerfile"
+    # docker_path: "path/to/build/folder"
+    # dockerfile_path: "Dockerfile"
     # image_name_slug: "my-service"
     # registry_url: "registry.com/my-repo"
     # image_tag_name: "latest"
     image_name: "{{ registry_url }}/{{ image_name_slug }}"
     image_tag: "{{ image_tag_name }}"
+    registry_host: "{{ registry_url.split('/')[0] }}"
 
   tasks:
+    - name: Setup Docker Buildx
+      shell: |
+        docker buildx create --use --name multiarch-builder || docker buildx use multiarch-builder
+      ignore_errors: yes
+
     - name: "Login to GCP Artifact Registry"
       block:
         - name: Login to GCP Artifact Registry
-          command: "gcloud auth configure-docker {{ registry_url.split('/')[0] }} --quiet"
+          command: "gcloud auth configure-docker {{ registry_host }} --quiet"
 
       rescue:
         - name: Handle login failure
           fail:
             msg: "Failed to login to GCP Artifact Registry. Please check your credentials."
 
-    - name: Build platform-specific images
+    - name: Build and push multi-platform image
       shell: |
-        docker build \
+        docker buildx build \
           --platform linux/amd64,linux/arm64 \
-          --file {{ dockerfile_name }} \
+          --file {{ dockerfile_path }} \
           --tag {{ image_name }}:{{ image_tag }} \
+          --push \
+          --progress=plain \
           {{ docker_path }}
       register: image_build_result
 
-    - name: Push Docker image
-      community.docker.docker_image:
-        name: "{{ image_name }}:{{ image_tag }}"
-        push: yes
-        source: local
-      when: image_build_result is succeeded
+    - name: Cleanup
+      block:
+      - name: Logout from ECR
+        community.docker.docker_login:
+          registry_url: "{{ registry_host }}"
+          state: absent
+
+      - name: Remove Docker Buildx builder
+        shell: "docker buildx rm multiarch-builder"
+        ignore_errors: yes
 
     - name: Print image URL
       debug:
