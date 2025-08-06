@@ -369,6 +369,7 @@ class BaseDeploymentStrategy(abc.ABC):
                 "region": environment.region,
                 "app_name": deployment_config.app_name_slug,
             }
+            extra_vars.update(cloud_provider.provider_detail.model_dump(mode="json"))
 
             ansible_runner.run_playbook(
                 "main.yml",

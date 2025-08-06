@@ -1,3 +1,4 @@
+import shutil
 from typing import Literal, Type
 
 import boto3
@@ -18,6 +19,7 @@ from opsmith.cloud_providers.base import (
 class AWSCloudDetail(BaseCloudProviderDetail):
     name: Literal["AWS"] = Field(default="AWS", description="Provider name, 'AWS'")
     account_id: str = Field(..., description="AWS Account ID.")
+    ssm_plugin: str = Field(..., description="Path to session-manager-plugin executable.")
 
 
 class AWSProvider(BaseCloudProvider):
@@ -129,6 +131,16 @@ class AWSProvider(BaseCloudProvider):
         Retrieves structured AWS account details.
         """
         try:
+            ssm_plugin_path = shutil.which("session-manager-plugin")
+            if not ssm_plugin_path:
+                raise CloudCredentialsError(
+                    message=(
+                        "'session-manager-plugin' not found. Please install the AWS Session Manager"
+                        " plugin."
+                    ),
+                    help_url="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html",
+                )
+
             sts_client = boto3.client("sts")
             identity = sts_client.get_caller_identity()
             account_id = identity.get("Account")
@@ -140,7 +152,7 @@ class AWSProvider(BaseCloudProvider):
                     ),
                     help_url="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html",
                 )
-            return AWSCloudDetail(account_id=account_id)
+            return AWSCloudDetail(account_id=account_id, ssm_plugin=ssm_plugin_path)
         except (NoCredentialsError, ClientError) as e:
             raise CloudCredentialsError(
                 message=f"AWS credentials error: {e}",
