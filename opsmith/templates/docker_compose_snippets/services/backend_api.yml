@@ -1,6 +1,13 @@
 {{ service_name_slug }}:
   image: "{{ image_name }}"
   restart: always
+  logging:
+      driver: "awslogs"
+      options:
+          awslogs-group: "{{ app_name }}-{{environment_name}}"
+          awslogs-stream: "{{service_name_slug}}"
+          awslogs-create-group: "true"
+          awslogs-create-stream: "true"
   labels:
     - "traefik.enable=true"
     - "traefik.http.routers.{{ service_name_slug }}.rule=Host(`{{ domain }}`)"

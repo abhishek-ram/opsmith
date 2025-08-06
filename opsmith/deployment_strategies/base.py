@@ -384,9 +384,9 @@ class BaseDeploymentStrategy(abc.ABC):
 
     def _fetch_remote_deployment_files(
         self,
+        deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
-        instance_public_ip: str,
-        ansible_user: str,
+        instance_id: str,
         remote_files: List[str],
     ) -> List[str]:
         print("\n[bold blue]Fetching current deployment files from server...[/bold blue]")
@@ -395,17 +395,21 @@ class BaseDeploymentStrategy(abc.ABC):
         )
 
         ansible_runner = AnsibleProvisioner(working_dir=fetch_files_path)
-        # We use 'common' as provider, since fetching is cloud-agnostic
-        ansible_runner.copy_template("fetch_remote_files", "common")
+        ansible_runner.copy_template(
+            "fetch_remote_files", environment.cloud_provider_instance.name()
+        )
         extra_vars = {
+            "app_name": deployment_config.app_name_slug,
+            "instance_id": instance_id,
+            "environment_name": environment.name,
+            "region": environment.region,
             "remote_files": remote_files,
         }
+        extra_vars.update(environment.cloud_provider_instance.provider_detail_dump)
 
         outputs = ansible_runner.run_playbook(
             "main.yml",
             extra_vars=extra_vars,
-            inventory=instance_public_ip,
-            user=ansible_user,
         )
 
         fetched_files_b64 = outputs.get("fetched_files", "")

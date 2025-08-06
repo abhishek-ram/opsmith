@@ -154,10 +154,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         Deploys the docker-compose stack and returns container logs for validation.
         """
         print("\n[bold blue]Deploying docker-compose stack to the VM \n[/bold blue]")
-        ansible_user, instance_public_ip = (
-            environment_state.virtual_machine.user,
-            environment_state.virtual_machine.public_ip,
-        )
+        ansible_user = environment_state.virtual_machine.user
         deploy_compose_path, docker_compose_path = self._get_deploy_docker_compose_path(environment)
 
         ansible_runner = AnsibleProvisioner(working_dir=deploy_compose_path)
@@ -169,21 +166,23 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
         traefik_content = traefik_template.render(domain_email=environment.domain_email or "")
 
         extra_vars = {
+            "app_name": deployment_config.app_name_slug,
+            "instance_id": environment_state.virtual_machine.instance_id,
+            "environment_name": environment.name,
+            "region": environment.region,
             "src_docker_compose": str(docker_compose_path),
             "dest_docker_compose": f"/home/{ansible_user}/app/docker-compose.yml",
             "env_file_content": env_file_content,
             "dest_env_file": f"/home/{ansible_user}/app/.env",
-            "remote_user": ansible_user,
+            "ansible_user": ansible_user,
             "registry_host_url": environment_state.registry_url.split("/")[0],
             "traefik_yml_content": traefik_content,
         }
-
+        extra_vars.update(environment.cloud_provider)
         try:
             outputs = ansible_runner.run_playbook(
                 "main.yml",
                 extra_vars=extra_vars,
-                inventory=instance_public_ip,
-                user=ansible_user,
             )
             logs_b64 = outputs.get("docker_logs", "")
             if logs_b64:
@@ -270,6 +269,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 port=service.service_port,
                 domain=domain,
                 service_name_slug=service.name_slug,
+                app_name=deployment_config.app_name_slug,
+                environment_name=environment.name,
             )
             service_snippets_list.append(f"# {service.name_slug}\n{content}")
         service_snippets = "\n\n".join(service_snippets_list)
@@ -282,6 +283,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 version=infra.version,
                 app_name=deployment_config.app_name_slug,
                 architecture=environment_state.virtual_machine.architecture.value,
+                environment_name=environment.name,
             )
             infra_snippets_list.append(f"# {infra.provider}\n{content}")
         infra_snippets = "\n\n".join(infra_snippets_list)
@@ -811,9 +813,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
                 env_file_path = f"/home/{env_state.virtual_machine.user}/app/.env"
                 fetched_files = self._fetch_remote_deployment_files(
+                    deployment_config,
                     environment,
-                    env_state.virtual_machine.public_ip,
-                    env_state.virtual_machine.user,
+                    env_state.virtual_machine.instance_id,
                     [env_file_path],
                 )
 
@@ -918,7 +920,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
                 variables = {
                     "app_name": deployment_config.app_name_slug,
+                    "environment": environment.name,
                     "instance_type": env_state.virtual_machine.instance_type,
+                    "instance_arch": env_state.virtual_machine.architecture.value,
                     "region": environment.region,
                     "ssh_pub_key": self._get_ssh_public_key(),
                 }
@@ -971,7 +975,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     "app_name": app_name,
                     "registry_name": registry_name,
                     "region": environment.region,
-                    "force_delete": True,
+                    "force_delete": "true",
                 }
                 env_vars = cloud_provider.provider_detail.model_dump(mode="json")
                 tf.destroy(variables, env_vars=env_vars)
@@ -1015,22 +1019,26 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             )
 
         ansible_user = env_state.virtual_machine.user
-        instance_public_ip = env_state.virtual_machine.public_ip
 
         run_command_path = (
             self.deployments_path / "environments" / environment.name / "docker_compose_run"
         )
         ansible_runner = AnsibleProvisioner(working_dir=run_command_path)
-        ansible_runner.copy_template("docker_compose_run", "common")
+        ansible_runner.copy_template(
+            "docker_compose_run", environment.cloud_provider_instance.name()
+        )
 
         extra_vars = {
+            "app_name": deployment_config.app_name_slug,
+            "instance_id": env_state.virtual_machine.instance_id,
+            "environment_name": environment.name,
+            "region": environment.region,
             "service_name_slug": service_name_slug,
             "command_to_run": command,
-            "remote_user": ansible_user,
+            "ansible_user": ansible_user,
         }
+        extra_vars.update(environment.cloud_provider)
         ansible_runner.run_playbook(
             "main.yml",
             extra_vars=extra_vars,
-            inventory=instance_public_ip,
-            user=ansible_user,
         )

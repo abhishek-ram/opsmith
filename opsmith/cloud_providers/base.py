@@ -172,6 +172,7 @@ class BaseCloudProvider(abc.ABC):
         Subclasses should implement specific authentication and setup.
         """
         self.provider_detail = TypeAdapter(self.get_detail_model()).validate_python(provider_detail)
+        self.provider_detail_dump = self.provider_detail.model_dump(mode="json", exclude={"name"})
 
     @abc.abstractmethod
     def get_regions(self) -> List[Tuple[str, str]]:
