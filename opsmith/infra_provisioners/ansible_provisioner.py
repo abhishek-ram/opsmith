@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 from rich import print
 
@@ -24,8 +24,8 @@ class AnsibleProvisioner(BaseInfrastructureProvisioner):
         self,
         playbook_name: str,
         extra_vars: Dict[str, Union[str, List[str]]],
-        inventory: str = None,
-        user: str = None,
+        inventory: Optional[str] = None,
+        user: Optional[str] = None,
     ) -> Dict[str, str]:
         """
         Runs an ansible playbook.
@@ -41,6 +41,9 @@ class AnsibleProvisioner(BaseInfrastructureProvisioner):
         if inventory:
             # The comma is important for a single host inventory
             command.extend(["-i", f"{inventory},"])
+        elif (self.working_dir / "inventory.yml").exists():
+            command.extend(["-i", "inventory.yml"])
+
         if user:
             command.extend(["--user", user])
 
