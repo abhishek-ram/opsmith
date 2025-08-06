@@ -3,6 +3,11 @@ variable "app_name" {
   type        = string
 }
 
+variable "environment" {
+  description = "The name of the environment."
+  type        = string
+}
+
 variable "region" {
   description = "The AWS region."
   type        = string
@@ -10,6 +15,11 @@ variable "region" {
 
 variable "instance_type" {
   description = "The EC2 instance type."
+  type        = string
+}
+
+variable "instance_arch" {
+  description = "The architecture of the instance CPU."
   type        = string
 }
 

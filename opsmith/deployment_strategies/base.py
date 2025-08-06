@@ -14,7 +14,7 @@ from pydantic_ai import Agent
 from rich import print
 
 from opsmith.agent import AgentDeps
-from opsmith.cloud_providers.base import BaseCloudProvider
+from opsmith.cloud_providers.base import BaseCloudProvider, CpuArchitectureEnum
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
 from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.settings import settings
@@ -205,7 +205,7 @@ class BaseDeploymentStrategy(abc.ABC):
 
             extra_vars = {
                 "docker_path": str(self.agent_deps.src_dir),
-                "dockerfile_name": str(dockerfile_path_abs),
+                "dockerfile_path": str(dockerfile_path_abs),
                 "image_name_slug": image_name_slug,
                 "image_tag_name": "latest",
                 "region": environment.region,
@@ -304,8 +304,9 @@ class BaseDeploymentStrategy(abc.ABC):
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
         instance_type: str,
+        instance_arch: CpuArchitectureEnum,
         cloud_provider: BaseCloudProvider,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, str]:
         """Creates a new virtual machine for the deployment."""
         provider_name = cloud_provider.name().lower()
         infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
@@ -313,7 +314,9 @@ class BaseDeploymentStrategy(abc.ABC):
 
         variables = {
             "app_name": deployment_config.app_name_slug,
+            "environment": environment.name,
             "instance_type": instance_type,
+            "instance_arch": instance_arch.value,
             "region": environment.region,
             "ssh_pub_key": self._get_ssh_public_key(),
         }
@@ -337,6 +340,11 @@ class BaseDeploymentStrategy(abc.ABC):
                 )
                 raise ValueError("Could not find 'instance_public_ip' in Terraform outputs.")
 
+            instance_id = outputs.get("instance_id")
+            if not instance_id:
+                print("[bold red]Could not find 'instance_id' in Terraform outputs.[/bold red]")
+                raise ValueError("Could not find 'instance_id' in Terraform outputs.")
+
             ansible_user = outputs.get("ansible_user")
             if not ansible_user:
                 print("[bold red]Could not find 'ansible_user' in Terraform outputs.[/bold red]")
@@ -348,19 +356,27 @@ class BaseDeploymentStrategy(abc.ABC):
             print("\n[bold blue]Setting up Docker on the newly created VM[/bold blue]")
 
             setup_docker_path = (
-                self.deployments_path / "environments" / environment.name / "docker_setup"
+                self.deployments_path / "environments" / environment.name / "virtual_machine_setup"
             )
             ansible_runner = AnsibleProvisioner(working_dir=setup_docker_path)
-            ansible_runner.copy_template("docker_setup", provider_name)
+            ansible_runner.copy_template("virtual_machine_setup", provider_name)
+
+            extra_vars = {
+                "instance_id": instance_id,
+                "instance_public_ip": "instance_public_ip",
+                "ansible_user": ansible_user,
+                "environment_name": environment.name,
+                "region": environment.region,
+                "app_name": deployment_config.app_name_slug,
+            }
+
             ansible_runner.run_playbook(
                 "main.yml",
-                extra_vars={},
-                inventory=instance_public_ip,
-                user=ansible_user,
+                extra_vars=extra_vars,
             )
             print("[bold green]Docker setup complete.[/bold green]")
 
-            return instance_public_ip, ansible_user
+            return instance_public_ip, ansible_user, instance_id
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             print(f"[bold red]Failed to set up monolithic infrastructure: {e}[/bold red]")
             raise

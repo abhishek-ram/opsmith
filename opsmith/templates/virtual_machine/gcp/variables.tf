@@ -3,6 +3,11 @@ variable "app_name" {
   type        = string
 }
 
+variable "environment" {
+  description = "The name of the environment."
+  type        = string
+}
+
 variable "project_id" {
   description = "The GCP project ID."
   type        = string
@@ -15,6 +20,11 @@ variable "region" {
 
 variable "instance_type" {
   description = "The GCE instance type."
+  type        = string
+}
+
+variable "instance_arch" {
+  description = "The architecture of the instance CPU."
   type        = string
 }
 

@@ -2,29 +2,46 @@ provider "aws" {
   region = var.region
 }
 
+data "aws_ssm_parameter" "ecs_optimized_ami" {
+  name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended"
+}
+
+
+# Local values
+locals {
+  ami_id = jsondecode(data.aws_ssm_parameter.ecs_optimized_ami.value)["image_id"]
+
+  common_tags = {
+    Project     = var.app_name
+    ManagedBy   = "Opsmith"
+  }
+}
+
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = {
+  tags = merge(local.common_tags, {
     Name = "${var.app_name}-vpc"
-  }
+  })
 }
 
-resource "aws_subnet" "main" {
+resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
-  tags = {
-    Name = "${var.app_name}-subnet"
-  }
+
+  tags = merge(local.common_tags, {
+    Name = "${var.app_name}-public-subnet"
+    Type = "Public"
+  })
 }
 
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
-  tags = {
+  tags = merge(local.common_tags, {
     Name = "${var.app_name}-igw"
-  }
+  })
 }
 
 resource "aws_route_table" "rt" {
@@ -33,35 +50,128 @@ resource "aws_route_table" "rt" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.gw.id
   }
-  tags = {
+  tags = merge(local.common_tags, {
     Name = "${var.app_name}-rt"
-  }
+  })
 }
 
-resource "aws_route_table_association" "a" {
-  subnet_id      = aws_subnet.main.id
+resource "aws_route_table_association" "public" {
+  subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.rt.id
 }
 
-data "aws_ssm_parameter" "ecs_optimized_ami" {
-  name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended"
+# VPC Flow Logs
+resource "aws_cloudwatch_log_group" "vpc_flow_log" {
+  name              = "/aws/vpc/flowlogs/${var.app_name}"
+  retention_in_days = 7
+
+  tags = local.common_tags
 }
 
-locals {
-  ami_id = jsondecode(data.aws_ssm_parameter.ecs_optimized_ami.value)["image_id"]
+resource "aws_iam_role" "flow_log_role" {
+  name = "${var.app_name}-flow-log-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "vpc-flow-logs.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
 }
 
+resource "aws_iam_role_policy" "flow_log_policy" {
+  name = "${var.app_name}-flow-log-policy"
+  role = aws_iam_role.flow_log_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_flow_log" "vpc_flow_log" {
+  iam_role_arn    = aws_iam_role.flow_log_role.arn
+  log_destination = aws_cloudwatch_log_group.vpc_flow_log.arn
+  traffic_type    = "ALL"
+  vpc_id          = aws_vpc.main.id
+
+  tags = local.common_tags
+}
+
+# S3 Bucket for SSM Session Logs
+resource "aws_s3_bucket" "ssm_session_logs" {
+  bucket = "${var.app_name}-ssm-logs-${var.environment}"
+
+  tags = merge(local.common_tags, {
+    Name = "${var.app_name}-ssm-session-logs"
+  })
+}
+
+resource "aws_s3_bucket_public_access_block" "ssm_session_logs_access" {
+  bucket = aws_s3_bucket.ssm_session_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "ssm_session_logs_encryption" {
+  bucket = aws_s3_bucket.ssm_session_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# SSM Session Manager Preferences
+resource "aws_ssm_document" "ssm_session_preferences" {
+  name          = "${var.app_name}-ssm-session-prefs"
+  document_type = "Session"
+  content = jsonencode({
+    schemaVersion = "1.0",
+    description   = "SSM Session Manager Preferences for ${var.app_name}",
+    sessionType   = "Standard_Stream",
+    inputs = {
+      s3KeyPrefix         = "ssm-sessions",
+      s3EncryptionEnabled = true,
+      runAsEnabled        = true,
+      runAsDefaultUser    = "ec2-user"
+    }
+  })
+  tags = merge(local.common_tags, {
+    Name = "${var.app_name}-ssm-prefs"
+  })
+}
+
+
+# Security Groups
 resource "aws_security_group" "instance_sg" {
   name        = "${var.app_name}-sg"
   description = "Security group for ${var.app_name} monolithic instance"
   vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   ingress {
     from_port   = 80
@@ -84,16 +194,12 @@ resource "aws_security_group" "instance_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
+  tags = merge(local.common_tags,{
     Name = "${var.app_name}-sg"
-  }
+  })
 }
 
-resource "aws_key_pair" "deployer_key" {
-  key_name   = "${var.app_name}-key"
-  public_key = var.ssh_pub_key
-}
-
+# IAM Role and Instance Profile
 resource "aws_iam_role" "ec2_role" {
   name = "${var.app_name}-ec2-role"
   assume_role_policy = jsonencode({
@@ -115,6 +221,11 @@ resource "aws_iam_role_policy_attachment" "ecr_access" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy_attachment" "ssm_managed_instance" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_instance_profile" "ec2_instance_profile" {
   name = "${var.app_name}-ec2-instance-profile"
   role = aws_iam_role.ec2_role.name
@@ -123,14 +234,22 @@ resource "aws_iam_instance_profile" "ec2_instance_profile" {
 resource "aws_instance" "app_server" {
   ami           = local.ami_id
   instance_type = var.instance_type
-  key_name      = aws_key_pair.deployer_key.key_name
-  subnet_id     = aws_subnet.main.id
+  subnet_id     = aws_subnet.public.id
   iam_instance_profile = aws_iam_instance_profile.ec2_instance_profile.name
-
   vpc_security_group_ids = [aws_security_group.instance_sg.id]
 
-  tags = {
-    Name = "${var.app_name}-monolithic-server"
+  root_block_device {
+    volume_type           = "gp3"
+    encrypted            = true
+    delete_on_termination = true
+
+    tags = merge(local.common_tags, {
+      Name = "${var.app_name}-root-volume"
+    })
   }
+
+  tags = merge(local.common_tags, {
+    Name = "${var.app_name}-monolithic-server"
+  })
 }
 

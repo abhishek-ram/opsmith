@@ -3,9 +3,9 @@ output "instance_public_ip" {
   value       = google_compute_instance.app_server.network_interface[0].access_config[0].nat_ip
 }
 
-output "instance_name" {
-  description = "The name of the GCE instance."
-  value       = google_compute_instance.app_server.name
+output "instance_id" {
+  description = "The ID of the GCE instance."
+  value       = google_compute_instance.app_server.instance_id
 }
 
 output "ansible_user" {

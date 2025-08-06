@@ -1,4 +1,4 @@
-- name: Install and configure Docker on AWS EC2
+- name: Install and configure Docker with CloudWatch monitoring on AWS EC2
   hosts: all
   become: true
   tasks:
