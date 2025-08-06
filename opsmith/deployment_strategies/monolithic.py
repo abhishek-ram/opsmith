@@ -715,8 +715,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             print(
                 "\n[bold blue]Creating new virtual machine for monolithic deployment...[/bold blue]"
             )
-            instance_public_ip, ansible_user = self._create_virtual_machine(
-                deployment_config, environment, instance_type, cloud_provider
+            instance_public_ip, ansible_user, instance_id = self._create_virtual_machine(
+                deployment_config, environment, instance_type, instance_arch, cloud_provider
             )
 
             virtual_machine_state = VirtualMachineState(
@@ -726,6 +726,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 architecture=instance_arch,
                 public_ip=instance_public_ip,
                 user=ansible_user,
+                instance_id=instance_id,
             )
             deployment_config.services = original_services
 
@@ -970,6 +971,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     "app_name": app_name,
                     "registry_name": registry_name,
                     "region": environment.region,
+                    "force_delete": True,
                 }
                 env_vars = cloud_provider.provider_detail.model_dump(mode="json")
                 tf.destroy(variables, env_vars=env_vars)

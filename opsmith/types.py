@@ -262,6 +262,7 @@ class VirtualMachineState(BaseModel):
     )
     public_ip: str = Field(..., description="The public IP address of the virtual machine.")
     user: str = Field(..., description="The SSH user for the virtual machine.")
+    instance_id: str = Field(..., description="The ID of the virtual machine instance.")
 
 
 class FrontendCDNState(BaseModel):
