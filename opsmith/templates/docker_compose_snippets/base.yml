@@ -1,3 +1,10 @@
+# Setup logging globally for all services
+x-logging: &default-logging
+  driver: "journald"
+  options:
+    labels: "service,version"
+    tag: "{% raw %}{{.Name}}-{{.ID}}{% endraw %}"
+
 services:
   traefik:
     image: "traefik:latest"
@@ -8,13 +15,8 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "./traefik.yml:/etc/traefik/traefik.yml:ro"
       - "./acme.json:/etc/traefik/acme.json"
-    logging:
-      driver: "awslogs"
-      options:
-        awslogs-group: "{{ app_name }}-{{environment_name}}"
-        awslogs-stream: "traefik"
-        awslogs-create-group: "true"
-        awslogs-create-stream: "true"
+    logging: *default-logging
+
 networks:
   default:
     name: {{ app_name }}

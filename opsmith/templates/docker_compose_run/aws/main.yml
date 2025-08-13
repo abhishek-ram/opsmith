@@ -13,7 +13,14 @@
       register: command_output
       become_user: "{{ ansible_user }}"
       changed_when: false
+      failed_when: command_output.rc != 0
 
     - name: Print command output
       ansible.builtin.debug:
         var: command_output.stdout_lines
+      when: command_output.stdout_lines is defined
+
+    - name: Print command errors (if any)
+      ansible.builtin.debug:
+        var: command_output.stderr_lines
+      when: command_output.stderr_lines is defined and command_output.stderr_lines | length > 0

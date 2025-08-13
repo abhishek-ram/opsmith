@@ -49,6 +49,104 @@
         name: amazon-cloudwatch-agent
         state: present
 
+    # Configure journald
+    - name: Configure journald for better log handling
+      ansible.builtin.copy:
+       content: |
+         [Journal]
+         Storage=persistent
+         Compress=yes
+         SystemMaxUse=2G
+         RuntimeMaxUse=200M
+         ForwardToSyslog=no
+         MaxRetentionSec=30d
+         RateLimitInterval=30s
+         RateLimitBurst=1000
+       dest: "/etc/systemd/journald.conf"
+       mode: "0644"
+       backup: yes
+      notify: restart journald
+
+    # Vector Installation
+    - name: Setup Vector Repo
+      shell: bash -c "$(curl -L https://setup.vector.dev)"
+
+    - name: Install Vector
+      ansible.builtin.yum:
+         name: vector
+         state: present
+
+    # Create Vector directories
+    - name: Create Vector directories
+      ansible.builtin.file:
+         path: "{{ item }}"
+         state: directory
+         mode: "0755"
+         owner: vector
+         group: vector
+      loop:
+         - /var/lib/vector
+         - /var/log/vector
+         - /etc/vector
+
+    # Vector configuration
+    - name: Create Vector configuration from content
+      ansible.builtin.copy:
+        content: |
+          data_dir: "/var/lib/vector"
+          
+          api:
+            enabled: false
+          
+          sources:
+            journald:
+              type: journald
+              current_boot_only: false
+          
+          transforms:
+            docker_containers:
+              type: filter
+              inputs:
+                - journald
+              condition: exists(.CONTAINER_NAME) && .CONTAINER_NAME != ""
+            enrich_containers:
+              type: remap
+              inputs:
+                - docker_containers
+              source: >
+                .service_name = replace(.CONTAINER_NAME, r'-\d+$', "") ?? .CONTAINER_NAME
+          
+                .message, err = "[" + .service_name + "] " + string!(.message)
+          
+          sinks:
+            cloudwatch_containers:
+              type: aws_cloudwatch_logs
+              inputs:
+                - enrich_containers
+              region: ap-south-1
+              group_name: dakya-care-dev
+              stream_name: containers
+              create_missing_group: true
+              create_missing_stream: true
+              batch:
+                max_events: 100
+                timeout_secs: 5
+              encoding:
+                codec: text 
+
+        dest: /etc/vector/vector.yaml
+        mode: "0644"
+        owner: vector
+        group: vector
+      notify: restart vector
+
+    # Add vector user to systemd-journal group
+    - name: Add vector user to systemd-journal group
+      ansible.builtin.user:
+        name: vector
+        groups: systemd-journal
+        append: yes
+
     - name: Create CloudWatch agent configuration
       ansible.builtin.copy:
         content: |
@@ -122,3 +220,14 @@
           -a fetch-config -m ec2 -s 
           -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
       register: cw_start_result
+
+  handlers:
+    - name: restart journald
+      ansible.builtin.service:
+        name: systemd-journald
+        state: restarted
+
+    - name: restart vector
+      ansible.builtin.service:
+        name: vector
+        state: restarted

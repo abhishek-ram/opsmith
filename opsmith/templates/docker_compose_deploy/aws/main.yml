@@ -32,6 +32,8 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0600"
+        backup: yes
+      no_log: true  # Prevent logging of potentially sensitive content
 
     - name: Copy traefik.yml to remote
       ansible.builtin.copy:
@@ -40,6 +42,8 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0644"
+        backup: yes
+      when: traefik_yml_content is defined
 
     - name: Create acme.json for Traefik SSL
       ansible.builtin.file:
@@ -48,17 +52,20 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0600"
+      when: traefik_yml_content is defined
 
     - name: "Login to AWS ECR"
       block:
         - name: Get ECR login password
           command: "aws ecr get-login-password"
           register: ecr_login
+          no_log: true
 
         - name: Login to ECR
           command: "docker login --username AWS --password {{ ecr_login.stdout }} {{ registry_host_url }}"
           no_log: true
       become_user: "{{ ansible_user }}"
+
       rescue:
         - name: Handle login failure
           fail:

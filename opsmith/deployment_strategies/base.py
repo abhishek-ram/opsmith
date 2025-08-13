@@ -129,6 +129,7 @@ class BaseDeploymentStrategy(abc.ABC):
             "app_name": app_name,
             "registry_name": registry_name,
             "region": environment.region,
+            "force_delete": "true",
         }
         env_vars = cloud_provider_instance.provider_detail.model_dump(mode="json")
 
