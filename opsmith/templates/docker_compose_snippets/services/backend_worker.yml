@@ -1,3 +1,4 @@
 {{ service_name_slug }}:
   image: "{{ image_name }}"
   restart: always
+  logging: *default-logging

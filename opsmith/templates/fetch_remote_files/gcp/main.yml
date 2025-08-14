@@ -1,0 +1,22 @@
+- name: Fetch remote files
+  hosts: all
+  vars:
+    # remote_files: list of remote file paths to fetch
+    #   e.g., ["/path/to/file1", "/path/to/file2"]
+  tasks:
+    - name: Fetch files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: "{{ remote_files }}"
+      register: slurp_results
+
+    - name: Prepare file contents list
+      ansible.builtin.set_fact:
+        file_contents: "{{ file_contents | default([]) + [item.content] }}"
+      loop: "{{ slurp_results.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Return file contents
+      ansible.builtin.debug:
+        msg: "OPSMITH_OUTPUT_FETCHED_FILES={{ file_contents | to_json | b64encode }}"

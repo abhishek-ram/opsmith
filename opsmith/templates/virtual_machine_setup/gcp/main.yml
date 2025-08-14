@@ -36,3 +36,55 @@
         name: "{{ ansible_user }}"
         groups: docker
         append: yes
+
+- name: Install and configure Cloudlog monitoring on GCP
+  hosts: all
+  become: true
+  tasks:
+    - name: Configure Ops Agent logging for Docker
+      ansible.builtin.copy:
+        dest: /etc/google-cloud-ops-agent/config.yaml
+        mode: "0644"
+        content: |
+          logging:
+            receivers:
+              docker_compose_journald:
+                type: systemd_journald
+            processors:
+              # Filter for Docker container logs only
+              docker_filter:
+                type: exclude_logs
+                match_any:
+                  - 'NOT jsonPayload.CONTAINER_NAME =~ ".+"'
+            service:
+              pipelines:
+                docker_compose_pipeline:
+                  receivers: [docker_compose_journald]
+                  processors: [docker_filter]
+          
+                # Override default system log pipeline to disable it
+                default_pipeline:
+                  receivers: []
+          metrics:
+            receivers:
+              hostmetrics:
+                type: hostmetrics
+                collection_interval: 60s
+            processors:
+              metrics_filter:
+                type: exclude_metrics
+                metrics_pattern: []
+            service:
+              pipelines:
+                default_pipeline:
+                  receivers: [hostmetrics]
+                  processors: [metrics_filter]
+          
+      notify: restart cloud-ops
+
+
+  handlers:
+    - name: restart cloud-ops
+      ansible.builtin.service:
+        name: google-cloud-ops-agent
+        state: restarted

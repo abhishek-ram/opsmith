@@ -1,6 +1,7 @@
 {{ service_name_slug }}:
   image: "{{ image_name }}"
   restart: always
+  logging: *default-logging
   labels:
     - "traefik.enable=true"
     - "traefik.http.routers.{{ service_name_slug }}.rule=Host(`{{ domain }}`)"

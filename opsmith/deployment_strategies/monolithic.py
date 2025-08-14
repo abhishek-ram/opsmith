@@ -34,7 +34,6 @@ from opsmith.types import (
     MonolithicDeploymentState,
     ServiceInfo,
     ServiceTypeEnum,
-    VirtualMachineState,
 )
 from opsmith.utils import WaitingSpinner, slugify
 
@@ -167,9 +166,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         extra_vars = {
             "app_name": deployment_config.app_name_slug,
-            "instance_id": environment_state.virtual_machine.instance_id,
             "environment_name": environment.name,
-            "region": environment.region,
             "src_docker_compose": str(docker_compose_path),
             "dest_docker_compose": f"/home/{ansible_user}/app/docker-compose.yml",
             "env_file_content": env_file_content,
@@ -177,8 +174,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             "ansible_user": ansible_user,
             "registry_host_url": environment_state.registry_url.split("/")[0],
             "traefik_yml_content": traefik_content,
+            **environment_state.virtual_machine.model_dump(mode="json"),
+            **environment.cloud_provider_instance.provider_detail_dump,
         }
-        extra_vars.update(environment.cloud_provider)
+        extra_vars.update(environment.cloud_provider_instance.provider_detail_dump)
         try:
             outputs = ansible_runner.run_playbook(
                 "main.yml",
@@ -438,12 +437,11 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             "build_path": service.build_path,
             "bucket_name": cdn_state.bucket_name,
             "project_root": self.src_dir,
-            "region": environment.region,
             "build_env_vars": cdn_state.build_env_vars,
             "cdn_distribution_id": cdn_state.cdn_distribution_id,
             "cdn_url_map": cdn_state.cdn_url_map,
         }
-        extra_vars.update(cloud_provider.provider_detail.model_dump(mode="json"))
+        extra_vars.update(cloud_provider.provider_detail_dump)
         ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
         print(f"[bold green]Assets for '{service.name_slug}' deployed successfully.[/bold green]")
 
@@ -474,11 +472,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         variables = {
             "app_name": deployment_config.app_name_slug,
-            "region": environment.region,
             "domain_name": domain_info.domain_name,
         }
 
-        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+        env_vars = cloud_provider.provider_detail_dump
         tf.init_and_apply(variables, env_vars=env_vars)
         outputs = tf.get_output()
 
@@ -518,11 +515,10 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         variables = {
             "app_name": deployment_config.app_name_slug,
-            "region": environment.region,
             "domain_name": domain_info.domain_name,
         }
 
-        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+        env_vars = cloud_provider.provider_detail_dump
         env_vars.update(cdn_part1_outputs)
         tf.init_and_apply(variables, env_vars=env_vars)
         outputs = tf.get_output()
@@ -536,12 +532,11 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
     def _select_virtual_machine_type(
         self,
         deployment_config: DeploymentConfig,
-        environment: DeploymentEnvironment,
         cloud_provider: BaseCloudProvider,
     ) -> MachineType:
         """Selects a virtual machine type for a new deployment environment."""
         with WaitingSpinner(text="Fetching available instance types"):
-            machine_type_list = cloud_provider.get_instance_types(environment.region)
+            machine_type_list = cloud_provider.get_instance_types()
 
         services_yaml = yaml.dump([s.model_dump(mode="json") for s in deployment_config.services])
         infra_deps_yaml = yaml.dump(
@@ -698,14 +693,14 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
             print(
                 "\n[bold blue]Setting up container registry for region"
-                f" '{environment.region}'... \n[/bold blue]"
+                f" '{environment.cloud_provider_detail.region}'... \n[/bold blue]"
             )
             registry_url = self._setup_container_registry(deployment_config, environment)
             images = self._build_and_push_images(deployment_config, environment, registry_url)
 
             print(f"\n[bold blue]Selecting instance type on {cloud_provider.name()}...[/bold blue]")
             selected_machine_type = self._select_virtual_machine_type(
-                deployment_config, environment, cloud_provider
+                deployment_config, cloud_provider
             )
             instance_type = selected_machine_type.name
             instance_arch = selected_machine_type.architecture
@@ -717,18 +712,8 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             print(
                 "\n[bold blue]Creating new virtual machine for monolithic deployment...[/bold blue]"
             )
-            instance_public_ip, ansible_user, instance_id = self._create_virtual_machine(
-                deployment_config, environment, instance_type, instance_arch, cloud_provider
-            )
-
-            virtual_machine_state = VirtualMachineState(
-                ram_gb=selected_machine_type.ram_gb,
-                cpu=selected_machine_type.cpu,
-                instance_type=instance_type,
-                architecture=instance_arch,
-                public_ip=instance_public_ip,
-                user=ansible_user,
-                instance_id=instance_id,
+            virtual_machine_state = self._create_virtual_machine(
+                deployment_config, environment, selected_machine_type, cloud_provider
             )
             deployment_config.services = original_services
 
@@ -738,7 +723,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     {
                         "type": "A",
                         "name": domain.domain_name,
-                        "value": instance_public_ip,
+                        "value": virtual_machine_state.public_ip,
                     }
                 )
             self._confirm_dns_records(dns_records)
@@ -815,7 +800,7 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 fetched_files = self._fetch_remote_deployment_files(
                     deployment_config,
                     environment,
-                    env_state.virtual_machine.instance_id,
+                    env_state.virtual_machine,
                     [env_file_path],
                 )
 
@@ -872,12 +857,11 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 tf_p2 = TerraformProvisioner(working_dir=infra_path_p2)
                 variables_p2 = {
                     "app_name": deployment_config.app_name_slug,
-                    "region": environment.region,
                     "domain_name": cdn_state.domain_name,
                     "bucket_name": cdn_state.bucket_name,
                     "certificate_id": cdn_state.certificate_id,
                 }
-                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                env_vars = cloud_provider.provider_detail_dump
                 tf_p2.destroy(variables_p2, env_vars=env_vars)
 
             # Delete the bucket contents
@@ -898,10 +882,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 tf_p1 = TerraformProvisioner(working_dir=infra_path_p1)
                 variables_p1 = {
                     "app_name": deployment_config.app_name_slug,
-                    "region": environment.region,
                     "domain_name": cdn_state.domain_name,
                 }
-                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                env_vars = cloud_provider.provider_detail_dump
                 tf_p1.destroy(variables_p1, env_vars=env_vars)
             else:
                 print(
@@ -923,7 +906,6 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                     "environment": environment.name,
                     "instance_type": env_state.virtual_machine.instance_type,
                     "instance_arch": env_state.virtual_machine.architecture.value,
-                    "region": environment.region,
                     "ssh_pub_key": self._get_ssh_public_key(),
                 }
                 env_vars = cloud_provider.provider_detail.model_dump(mode="json")
@@ -950,22 +932,25 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
             e for e in deployment_config.environments if e.name != environment.name
         ]
         remaining_environments_in_region = [
-            e for e in remaining_environments if e.region == environment.region
+            e
+            for e in remaining_environments
+            if e.cloud_provider_detail.region == environment.cloud_provider_detail.region
         ]
 
         if not remaining_environments_in_region and env_state.registry_url:
             print(
-                f"\n[bold blue]Last environment in region '{environment.region}'. Destroying"
-                " container registry...[/bold blue]"
+                "\n[bold blue]Last environment in region"
+                f" '{environment.cloud_provider_detail.region}'. Destroying container"
+                " registry...[/bold blue]"
             )
             app_name = deployment_config.app_name_slug
-            registry_name = slugify(f"{app_name}-{environment.region}")
+            registry_name = slugify(f"{app_name}-{environment.cloud_provider_detail.region}")
 
             registry_infra_path = (
                 self.deployments_path
                 / "environments"
                 / "global"
-                / f"{cloud_provider.name()}-{environment.region}"
+                / f"{cloud_provider.name()}-{environment.cloud_provider_detail.region}"
                 / "container_registry"
             )
 
@@ -974,10 +959,9 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
                 variables = {
                     "app_name": app_name,
                     "registry_name": registry_name,
-                    "region": environment.region,
                     "force_delete": "true",
                 }
-                env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+                env_vars = cloud_provider.provider_detail_dump
                 tf.destroy(variables, env_vars=env_vars)
                 print("[bold green]Container registry destroyed successfully.[/bold green]")
                 try:
@@ -1030,14 +1014,13 @@ class MonolithicDeploymentStrategy(BaseDeploymentStrategy):
 
         extra_vars = {
             "app_name": deployment_config.app_name_slug,
-            "instance_id": env_state.virtual_machine.instance_id,
             "environment_name": environment.name,
-            "region": environment.region,
             "service_name_slug": service_name_slug,
             "command_to_run": command,
             "ansible_user": ansible_user,
+            **env_state.virtual_machine.model_dump(mode="json"),
+            **environment.cloud_provider_instance.provider_detail_dump,
         }
-        extra_vars.update(environment.cloud_provider)
         ansible_runner.run_playbook(
             "main.yml",
             extra_vars=extra_vars,

@@ -6,53 +6,58 @@
     # dest_docker_compose: path on remote machine
     # env_file_content: content of .env file
     # dest_env_file: path for .env file on remote machine
-    # remote_user: the user on the remote machine
+    # ansible_user: the user on the remote machine
     # registry_host_url: "registry.com"
   tasks:
     - name: Ensure destination directory exists
       ansible.builtin.file:
         path: "{{ dest_docker_compose | dirname }}"
         state: directory
-        owner: "{{ remote_user }}"
-        group: "{{ remote_user }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0755"
 
     - name: Copy docker-compose.yml to remote
       ansible.builtin.copy:
         src: "{{ src_docker_compose }}"
         dest: "{{ dest_docker_compose }}"
-        owner: "{{ remote_user }}"
-        group: "{{ remote_user }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0644"
 
     - name: Copy .env file to remote
       ansible.builtin.copy:
         content: "{{ env_file_content }}"
         dest: "{{ dest_env_file }}"
-        owner: "{{ remote_user }}"
-        group: "{{ remote_user }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0600"
+        backup: yes
+      no_log: true  # Prevent logging of potentially sensitive content
 
     - name: Copy traefik.yml to remote
       ansible.builtin.copy:
         content: "{{ traefik_yml_content }}"
         dest: "{{ dest_docker_compose | dirname }}/traefik.yml"
-        owner: "{{ remote_user }}"
-        group: "{{ remote_user }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0644"
+        backup: yes
+      when: traefik_yml_content is defined
 
     - name: Create acme.json for Traefik SSL
       ansible.builtin.file:
         path: "{{ dest_docker_compose | dirname }}/acme.json"
         state: touch
-        owner: "{{ remote_user }}"
-        group: "{{ remote_user }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0600"
+      when: traefik_yml_content is defined
 
     - name: "Configure Docker for GCP Artifact Registry"
       command: "gcloud auth configure-docker {{ registry_host_url }} --quiet"
       changed_when: false
-      become_user: "{{ remote_user }}"
+      become_user: "{{ ansible_user }}"
 
     - name: Run docker-compose up
       community.docker.docker_compose_v2:
@@ -61,7 +66,7 @@
         pull: always
         recreate: always
         remove_orphans: yes
-      become_user: "{{ remote_user }}"
+      become_user: "{{ ansible_user }}"
 
     - name: Wait for services to stabilize
       ansible.builtin.pause:
@@ -72,7 +77,7 @@
       args:
         chdir: "{{ dest_docker_compose | dirname }}"
       register: logs
-      become_user: "{{ remote_user }}"
+      become_user: "{{ ansible_user }}"
       changed_when: false
       failed_when: false
 

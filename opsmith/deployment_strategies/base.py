@@ -9,16 +9,20 @@ from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type
 
-import yaml
 from pydantic_ai import Agent
 from rich import print
 
 from opsmith.agent import AgentDeps
-from opsmith.cloud_providers.base import BaseCloudProvider, CpuArchitectureEnum
+from opsmith.cloud_providers.base import BaseCloudProvider, MachineType
 from opsmith.infra_provisioners.ansible_provisioner import AnsibleProvisioner
 from opsmith.infra_provisioners.terraform_provisioner import TerraformProvisioner
 from opsmith.settings import settings
-from opsmith.types import DeploymentConfig, DeploymentEnvironment, ServiceTypeEnum
+from opsmith.types import (
+    DeploymentConfig,
+    DeploymentEnvironment,
+    ServiceTypeEnum,
+    VirtualMachineState,
+)
 from opsmith.utils import slugify
 
 
@@ -111,7 +115,7 @@ class BaseDeploymentStrategy(abc.ABC):
         """Sets up a container registry for the given region."""
         app_name = deployment_config.app_name_slug
         # Registry name should probably be unique per region for the app
-        registry_name = slugify(f"{app_name}-{environment.region}")
+        registry_name = slugify(f"{app_name}-{environment.cloud_provider_detail.region}")
 
         cloud_provider_instance = environment.cloud_provider_instance
         provider_name = cloud_provider_instance.name()
@@ -120,7 +124,7 @@ class BaseDeploymentStrategy(abc.ABC):
             self.deployments_path
             / "environments"
             / "global"
-            / f"{cloud_provider_instance.name()}-{environment.region}"
+            / f"{cloud_provider_instance.name()}-{environment.cloud_provider_detail.region}"
             / "container_registry"
         )
         tf = TerraformProvisioner(working_dir=registry_infra_path)
@@ -128,7 +132,6 @@ class BaseDeploymentStrategy(abc.ABC):
         variables = {
             "app_name": app_name,
             "registry_name": registry_name,
-            "region": environment.region,
             "force_delete": "true",
         }
         env_vars = cloud_provider_instance.provider_detail.model_dump(mode="json")
@@ -202,17 +205,16 @@ class BaseDeploymentStrategy(abc.ABC):
 
             ansible_runner = AnsibleProvisioner(working_dir=build_infra_path)
 
-            provider_name = environment.cloud_provider["name"].lower()
+            provider_name = environment.cloud_provider_detail.name.lower()
 
             extra_vars = {
                 "docker_path": str(self.agent_deps.src_dir),
                 "dockerfile_path": str(dockerfile_path_abs),
                 "image_name_slug": image_name_slug,
                 "image_tag_name": "latest",
-                "region": environment.region,
                 "registry_url": registry_url,
             }
-
+            extra_vars.update(environment.cloud_provider_instance.provider_detail_dump)
             ansible_runner.copy_template("docker_build_push", provider_name)
             outputs = ansible_runner.run_playbook("main.yml", extra_vars)
 
@@ -304,10 +306,9 @@ class BaseDeploymentStrategy(abc.ABC):
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
-        instance_type: str,
-        instance_arch: CpuArchitectureEnum,
+        machine_type: MachineType,
         cloud_provider: BaseCloudProvider,
-    ) -> Tuple[str, str, str]:
+    ) -> VirtualMachineState:
         """Creates a new virtual machine for the deployment."""
         provider_name = cloud_provider.name().lower()
         infra_path = self.deployments_path / "environments" / environment.name / "virtual_machine"
@@ -316,78 +317,60 @@ class BaseDeploymentStrategy(abc.ABC):
         variables = {
             "app_name": deployment_config.app_name_slug,
             "environment": environment.name,
-            "instance_type": instance_type,
-            "instance_arch": instance_arch.value,
-            "region": environment.region,
+            "instance_type": machine_type.name,
+            "instance_arch": machine_type.architecture.value,
             "ssh_pub_key": self._get_ssh_public_key(),
         }
-        env_vars = cloud_provider.provider_detail.model_dump(mode="json")
+        env_vars = cloud_provider.provider_detail_dump
 
-        try:
-            tf.copy_template("virtual_machine", provider_name)
+        tf.copy_template("virtual_machine", provider_name)
 
-            tf.init_and_apply(variables, env_vars=env_vars)
+        tf.init_and_apply(variables, env_vars=env_vars)
 
-            outputs = tf.get_output()
-            print("[bold green]Monolithic infrastructure provisioned successfully.[/bold green]")
-            if outputs:
-                print("[bold green]Outputs:[/bold green]")
-                print(yaml.dump(outputs))
+        outputs = tf.get_output()
+        print("[bold green]Monolithic infrastructure provisioned successfully.[/bold green]")
 
-            instance_public_ip = outputs.get("instance_public_ip")
-            if not instance_public_ip:
-                print(
-                    "[bold red]Could not find 'instance_public_ip' in Terraform outputs.[/bold red]"
-                )
-                raise ValueError("Could not find 'instance_public_ip' in Terraform outputs.")
+        virtual_machine_state = VirtualMachineState(
+            ram_gb=machine_type.ram_gb,
+            cpu=machine_type.cpu,
+            instance_type=machine_type.name,
+            architecture=machine_type.architecture,
+            **outputs,
+        )
 
-            instance_id = outputs.get("instance_id")
-            if not instance_id:
-                print("[bold red]Could not find 'instance_id' in Terraform outputs.[/bold red]")
-                raise ValueError("Could not find 'instance_id' in Terraform outputs.")
+        print("[bold blue]Waiting 15 seconds for instance to become ready...[/bold blue]")
+        time.sleep(15)
 
-            ansible_user = outputs.get("ansible_user")
-            if not ansible_user:
-                print("[bold red]Could not find 'ansible_user' in Terraform outputs.[/bold red]")
-                raise ValueError("Could not find 'ansible_user' in Terraform outputs.")
+        print("\n[bold blue]Setting up Docker on the newly created VM[/bold blue]")
 
-            print("[bold blue]Waiting 15 seconds for instance to become ready...[/bold blue]")
-            time.sleep(15)
+        setup_docker_path = (
+            self.deployments_path / "environments" / environment.name / "virtual_machine_setup"
+        )
+        ansible_runner = AnsibleProvisioner(working_dir=setup_docker_path)
+        ansible_runner.copy_template("virtual_machine_setup", provider_name)
 
-            print("\n[bold blue]Setting up Docker on the newly created VM[/bold blue]")
+        extra_vars = {
+            "environment_name": environment.name,
+            "app_name": deployment_config.app_name_slug,
+            **cloud_provider.provider_detail_dump,
+            **virtual_machine_state.model_dump(mode="json"),
+        }
+        # extra_vars.update(virtual_machine_state.model_dump(mode="json"))
+        # extra_vars.update(cloud_provider.provider_detail_dump)
 
-            setup_docker_path = (
-                self.deployments_path / "environments" / environment.name / "virtual_machine_setup"
-            )
-            ansible_runner = AnsibleProvisioner(working_dir=setup_docker_path)
-            ansible_runner.copy_template("virtual_machine_setup", provider_name)
+        ansible_runner.run_playbook(
+            "main.yml",
+            extra_vars=extra_vars,
+        )
+        print("[bold green]Docker setup complete.[/bold green]")
 
-            extra_vars = {
-                "instance_id": instance_id,
-                "instance_public_ip": "instance_public_ip",
-                "ansible_user": ansible_user,
-                "environment_name": environment.name,
-                "region": environment.region,
-                "app_name": deployment_config.app_name_slug,
-            }
-            extra_vars.update(cloud_provider.provider_detail.model_dump(mode="json"))
-
-            ansible_runner.run_playbook(
-                "main.yml",
-                extra_vars=extra_vars,
-            )
-            print("[bold green]Docker setup complete.[/bold green]")
-
-            return instance_public_ip, ansible_user, instance_id
-        except (FileNotFoundError, subprocess.CalledProcessError) as e:
-            print(f"[bold red]Failed to set up monolithic infrastructure: {e}[/bold red]")
-            raise
+        return virtual_machine_state
 
     def _fetch_remote_deployment_files(
         self,
         deployment_config: DeploymentConfig,
         environment: DeploymentEnvironment,
-        instance_id: str,
+        virtual_machine: VirtualMachineState,
         remote_files: List[str],
     ) -> List[str]:
         print("\n[bold blue]Fetching current deployment files from server...[/bold blue]")
@@ -401,12 +384,11 @@ class BaseDeploymentStrategy(abc.ABC):
         )
         extra_vars = {
             "app_name": deployment_config.app_name_slug,
-            "instance_id": instance_id,
             "environment_name": environment.name,
-            "region": environment.region,
             "remote_files": remote_files,
+            **virtual_machine.model_dump(mode="json"),
+            **environment.cloud_provider_instance.provider_detail_dump,
         }
-        extra_vars.update(environment.cloud_provider_instance.provider_detail_dump)
 
         outputs = ansible_runner.run_playbook(
             "main.yml",
@@ -452,8 +434,8 @@ class BaseDeploymentStrategy(abc.ABC):
 
         extra_vars = {
             "bucket_name": bucket_name,
-            "region": environment.region,
         }
+        extra_vars.update(environment.cloud_provider_instance.provider_detail_dump)
         ansible_runner.run_playbook("main.yml", extra_vars=extra_vars, inventory="localhost")
         print(f"[bold green]Bucket '{bucket_name}' emptied successfully.[/bold green]")
 

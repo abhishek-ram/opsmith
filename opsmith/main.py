@@ -26,12 +26,7 @@ from opsmith.types import (
     ServiceInfo,
     ServiceTypeEnum,
 )
-from opsmith.utils import (
-    WaitingSpinner,
-    build_logo,
-    get_missing_external_dependencies,
-    slugify,
-)
+from opsmith.utils import build_logo, get_missing_external_dependencies, slugify
 
 app = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -368,23 +363,6 @@ def deploy(ctx: typer.Context):
             )
             raise typer.Exit(code=1)
 
-        # Get cloud provider to fetch regions
-        with WaitingSpinner(text="Fetching regions from your cloud provider"):
-            try:
-                provider_instance = provider_class(cloud_details)
-                regions = provider_instance.get_regions()
-            except CloudCredentialsError as e:
-                print(
-                    f"[bold red]Cloud provider authentication/configuration error:\n{e}[/bold red]"
-                )
-                raise typer.Exit(code=1)
-            except Exception as e:
-                print(
-                    "[bold red]An unexpected error occurred while initializing cloud provider or"
-                    f" fetching details: {e}. Aborting.[/bold red]"
-                )
-                raise typer.Exit(code=1)
-
         new_env_questions = [
             inquirer.Text(
                 "env_name",
@@ -392,11 +370,6 @@ def deploy(ctx: typer.Context):
                 validate=lambda _, x: x.strip() != ""
                 and x.strip() not in deployment_config.environment_names
                 and x.strip() != "<Create a new environment>",
-            ),
-            inquirer.List(
-                "region",
-                message="Select a region for the new environment",
-                choices=regions,
             ),
             inquirer.List(
                 "strategy",
@@ -408,17 +381,12 @@ def deploy(ctx: typer.Context):
         if (
             not new_env_answers
             or not new_env_answers.get("env_name")
-            or not new_env_answers.get("region")
             or not new_env_answers.get("strategy")
         ):
-            print(
-                "[bold red]Environment name, region, and strategy are required. Aborting.[/bold"
-                " red]"
-            )
+            print("[bold red]Environment name and strategy are required. Aborting.[/bold red]")
             raise typer.Exit()
 
         selected_env_name = new_env_answers["env_name"].strip()
-        selected_region = new_env_answers["region"]
         selected_strategy = new_env_answers["strategy"]
 
         domains = []
@@ -466,7 +434,6 @@ def deploy(ctx: typer.Context):
         new_env = DeploymentEnvironment(
             name=selected_env_name,
             cloud_provider=cloud_details,
-            region=selected_region,
             strategy=selected_strategy,
             domains=domains,
             domain_email=domain_email,
@@ -481,8 +448,9 @@ def deploy(ctx: typer.Context):
 
         deployment_config.save(ctx.obj["deployments_path"])
         print(
-            f"\n[bold green]New environment '{selected_env_name}' in region '{selected_region}'"
-            f" with strategy '{selected_strategy}' created and saved.[/bold green]"
+            f"\n[bold green]New environment '{selected_env_name}' in region"
+            f" '{cloud_details['region']}' with strategy '{selected_strategy}' created and"
+            " saved.[/bold green]"
         )
         return
 

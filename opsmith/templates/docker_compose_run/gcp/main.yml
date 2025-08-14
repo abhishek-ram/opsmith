@@ -1,0 +1,26 @@
+- name: Run command on service
+  hosts: all
+  become: true
+  vars:
+    # service_name_slug: The slug of the service to run the command on
+    # command_to_run: The command to run
+    # ansible_user: the user on the remote machine
+  tasks:
+    - name: Run docker compose exec
+      ansible.builtin.shell: "docker compose run --rm {{ service_name_slug }} {{ command_to_run }}"
+      args:
+        chdir: "/home/{{ ansible_user }}/app"
+      register: command_output
+      become_user: "{{ ansible_user }}"
+      changed_when: false
+      failed_when: command_output.rc != 0
+
+    - name: Print command output
+      ansible.builtin.debug:
+        var: command_output.stdout_lines
+      when: command_output.stdout_lines is defined
+
+    - name: Print command errors (if any)
+      ansible.builtin.debug:
+        var: command_output.stderr_lines
+      when: command_output.stderr_lines is defined and command_output.stderr_lines | length > 0

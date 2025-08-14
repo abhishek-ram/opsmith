@@ -3,6 +3,7 @@ from typing import Literal, Type
 
 import boto3
 import botocore.session
+import inquirer
 from botocore.exceptions import ClientError, NoCredentialsError
 from pydantic import Field
 
@@ -14,6 +15,7 @@ from opsmith.cloud_providers.base import (
     MachineType,
     MachineTypeList,
 )
+from opsmith.utils import WaitingSpinner
 
 
 class AWSCloudDetail(BaseCloudProviderDetail):
@@ -40,33 +42,35 @@ class AWSProvider(BaseCloudProvider):
         """The cloud provider detail model."""
         return AWSCloudDetail
 
-    def get_regions(self) -> list[tuple[str, str]]:
+    @staticmethod
+    def get_regions() -> list[tuple[str, str]]:
         """
         Retrieves a list of available AWS regions with their display names.
         """
-        # Get available region codes from EC2
-        ec2_client = boto3.client("ec2", region_name="us-east-1")
-        response = ec2_client.describe_regions()
-        available_region_codes = {region["RegionName"] for region in response["Regions"]}
+        with WaitingSpinner(text="Fetching available regions from AWS Cloud Provider..."):
+            # Get available region codes from EC2
+            ec2_client = boto3.client("ec2", region_name="us-east-1")
+            response = ec2_client.describe_regions()
+            available_region_codes = {region["RegionName"] for region in response["Regions"]}
 
-        # Get region descriptions from botocore's packaged data
-        session = botocore.session.get_session()
-        # The first partition is 'aws' which contains all standard regions
-        region_data = session.get_data("endpoints")["partitions"][0]["regions"]
+            # Get region descriptions from botocore's packaged data
+            session = botocore.session.get_session()
+            # The first partition is 'aws' which contains all standard regions
+            region_data = session.get_data("endpoints")["partitions"][0]["regions"]
 
-        regions = []
-        for code in available_region_codes:
-            data = region_data[code]
-            description = data.get("description", code.replace("-", " ").title())
-            regions.append((f"{description} ({code})", code))
+            regions = []
+            for code in available_region_codes:
+                data = region_data[code]
+                description = data.get("description", code.replace("-", " ").title())
+                regions.append((f"{description} ({code})", code))
 
-        return sorted(regions, key=lambda x: x[1])
+            return sorted(regions, key=lambda x: x[1])
 
-    def get_instance_types(self, region: str) -> MachineTypeList:
+    def get_instance_types(self) -> MachineTypeList:
         """
         Retrieves a list of available instance types for the given region using heuristics.
         """
-        ec2_client = boto3.client("ec2", region_name=region)
+        ec2_client = boto3.client("ec2", region_name=self.provider_detail.region)
 
         # Prioritize newer generation, general-purpose and compute-optimized instance families
         instance_families = [
@@ -152,7 +156,23 @@ class AWSProvider(BaseCloudProvider):
                     ),
                     help_url="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html",
                 )
-            return AWSCloudDetail(account_id=account_id, ssm_plugin=ssm_plugin_path)
+
+            regions = AWSProvider.get_regions()
+            questions = [
+                inquirer.List(
+                    "region",
+                    message="Select an AWS region",
+                    choices=regions,
+                ),
+            ]
+            answers = inquirer.prompt(questions)
+            if not answers or not answers.get("region"):
+                raise ValueError("AWS region selection is required. Aborting.")
+            selected_region = answers["region"]
+
+            return AWSCloudDetail(
+                account_id=account_id, ssm_plugin=ssm_plugin_path, region=selected_region
+            )
         except (NoCredentialsError, ClientError) as e:
             raise CloudCredentialsError(
                 message=f"AWS credentials error: {e}",

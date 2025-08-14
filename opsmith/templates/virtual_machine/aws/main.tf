@@ -22,7 +22,7 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
   enable_dns_hostnames = true
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-vpc"
+    Name = "${var.app_name}-${var.environment}-vpc"
   })
 }
 
@@ -32,7 +32,7 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-public-subnet"
+    Name = "${var.app_name}-${var.environment}-public-subnet"
     Type = "Public"
   })
 }
@@ -40,7 +40,7 @@ resource "aws_subnet" "public" {
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-igw"
+    Name = "${var.app_name}-${var.environment}-igw"
   })
 }
 
@@ -51,7 +51,7 @@ resource "aws_route_table" "rt" {
     gateway_id = aws_internet_gateway.gw.id
   }
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-rt"
+    Name = "${var.app_name}-${var.environment}-rt"
   })
 }
 
@@ -62,14 +62,14 @@ resource "aws_route_table_association" "public" {
 
 # VPC Flow Logs
 resource "aws_cloudwatch_log_group" "vpc_flow_log" {
-  name              = "/aws/vpc/flowlogs/${var.app_name}"
+  name              = "/aws/vpc/flowlogs/${var.app_name}-${var.environment}"
   retention_in_days = 7
 
   tags = local.common_tags
 }
 
 resource "aws_iam_role" "flow_log_role" {
-  name = "${var.app_name}-flow-log-role"
+  name = "${var.app_name}-${var.environment}-flow-log-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -88,7 +88,7 @@ resource "aws_iam_role" "flow_log_role" {
 }
 
 resource "aws_iam_role_policy" "flow_log_policy" {
-  name = "${var.app_name}-flow-log-policy"
+  name = "${var.app_name}-${var.environment}-flow-log-policy"
   role = aws_iam_role.flow_log_role.id
 
   policy = jsonencode({
@@ -120,10 +120,10 @@ resource "aws_flow_log" "vpc_flow_log" {
 
 # S3 Bucket for SSM Session Logs
 resource "aws_s3_bucket" "ssm_session_logs" {
-  bucket = "${var.app_name}-ssm-logs-${var.environment}"
+  bucket = "${var.app_name}-${var.environment}-ssm-logs"
 
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-ssm-session-logs"
+    Name = "${var.app_name}-${var.environment}-ssm-session-logs"
   })
 }
 
@@ -148,11 +148,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "ssm_session_logs_
 
 # SSM Session Manager Preferences
 resource "aws_ssm_document" "ssm_session_preferences" {
-  name          = "${var.app_name}-ssm-session-prefs"
+  name          = "${var.app_name}-${var.environment}-ssm-session-prefs"
   document_type = "Session"
   content = jsonencode({
     schemaVersion = "1.0",
-    description   = "SSM Session Manager Preferences for ${var.app_name}",
+    description   = "SSM Session Manager Preferences for ${var.app_name}-${var.environment}",
     sessionType   = "Standard_Stream",
     inputs = {
       s3KeyPrefix         = "ssm-sessions",
@@ -162,15 +162,15 @@ resource "aws_ssm_document" "ssm_session_preferences" {
     }
   })
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-ssm-prefs"
+    Name = "${var.app_name}-${var.environment}-ssm-prefs"
   })
 }
 
 
 # Security Groups
 resource "aws_security_group" "instance_sg" {
-  name        = "${var.app_name}-sg"
-  description = "Security group for ${var.app_name} monolithic instance"
+  name        = "${var.app_name}-${var.environment}-sg"
+  description = "Security group for ${var.app_name}-${var.environment} monolithic instance"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -180,7 +180,7 @@ resource "aws_security_group" "instance_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-    ingress {
+  ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -195,13 +195,13 @@ resource "aws_security_group" "instance_sg" {
   }
 
   tags = merge(local.common_tags,{
-    Name = "${var.app_name}-sg"
+    Name = "${var.app_name}-${var.environment}-sg"
   })
 }
 
 # IAM Role and Instance Profile
 resource "aws_iam_role" "ec2_role" {
-  name = "${var.app_name}-ec2-role"
+  name = "${var.app_name}-${var.environment}-ec2-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
@@ -232,7 +232,7 @@ resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
 }
 
 resource "aws_iam_instance_profile" "ec2_instance_profile" {
-  name = "${var.app_name}-ec2-instance-profile"
+  name = "${var.app_name}-${var.environment}-ec2-instance-profile"
   role = aws_iam_role.ec2_role.name
 }
 
@@ -249,12 +249,12 @@ resource "aws_instance" "app_server" {
     delete_on_termination = true
 
     tags = merge(local.common_tags, {
-      Name = "${var.app_name}-root-volume"
+      Name = "${var.app_name}-${var.environment}-root-volume"
     })
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.app_name}-monolithic-server"
+    Name = "${var.app_name}-${var.environment}-monolithic-server"
   })
 }
 

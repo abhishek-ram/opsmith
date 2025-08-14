@@ -15,6 +15,7 @@ from opsmith.cloud_providers.base import (
     MachineType,
     MachineTypeList,
 )
+from opsmith.utils import WaitingSpinner
 
 GCP_REGION_DESCRIPTIONS = {
     "africa-south1": "Johannesburg, South Africa",
@@ -62,6 +63,7 @@ GCP_REGION_DESCRIPTIONS = {
 class GCPCloudDetail(BaseCloudProviderDetail):
     name: Literal["GCP"] = Field(default="GCP", description="Provider name, 'GCP'")
     project_id: str = Field(..., description="GCP Project ID.")
+    zone: str = Field(..., description="The GCP zone for this environment.")
 
 
 class GCPProvider(BaseCloudProvider):
@@ -101,37 +103,47 @@ class GCPProvider(BaseCloudProvider):
             self._credentials, _ = google.auth.default()
         return self._credentials
 
-    def get_regions(self) -> list[tuple[str, str]]:
+    @staticmethod
+    def get_regions(project_id: str, credentials: Credentials) -> list[tuple[str, str]]:
         """
         Retrieves a list of available GCP regions using the GCP API.
         """
-        client = compute_v1.RegionsClient(credentials=self.get_credentials())
-        project_id = self.provider_detail.project_id
+        with WaitingSpinner(text="Fetching available regions from GCP Cloud Provider..."):
+            client = compute_v1.RegionsClient(credentials=credentials)
 
-        request = compute_v1.ListRegionsRequest(project=project_id)
-        pager = client.list(request=request)
+            request = compute_v1.ListRegionsRequest(project=project_id)
+            pager = client.list(request=request)
 
-        regions = []
-        for region in pager:
-            code = region.name
-            name = (
-                GCP_REGION_DESCRIPTIONS.get(code)
-                or region.description
-                or code.replace("-", " ").title()
-            )
-            regions.append((f"{name} ({code})", code))
+            regions = []
+            for region in pager:
+                code = region.name
+                name = (
+                    GCP_REGION_DESCRIPTIONS.get(code)
+                    or region.description
+                    or code.replace("-", " ").title()
+                )
+                regions.append((f"{name} ({code})", code))
 
-        return sorted(regions, key=lambda x: x[1])
+            return sorted(regions, key=lambda x: x[1])
 
-    def get_instance_types(self, region: str) -> MachineTypeList:
+    @staticmethod
+    def get_zones(project_id: str, region_name: str, credentials: Credentials) -> list[str]:
         """
-        Retrieves a list of available instance types for the given region using the GCP API.
+        Retrieves a list of available GCP zones for a given region.
+        """
+        client = compute_v1.RegionsClient(credentials=credentials)
+        request = compute_v1.GetRegionRequest(project=project_id, region=region_name)
+        region_details = client.get(request=request)
+        zones = [zone.split("/")[-1] for zone in region_details.zones]
+        return sorted(zones)
+
+    def get_instance_types(self) -> MachineTypeList:
+        """
+        Retrieves a list of available instance types for the given zone using the GCP API.
         """
         client = compute_v1.MachineTypesClient(credentials=self.get_credentials())
         project_id = self.provider_detail.project_id
-
-        # We need a zone to list machine types. We'll pick a zone in the region, assuming standard naming.
-        zone = f"{region}-a"
+        zone = self.provider_detail.zone
 
         request = compute_v1.ListMachineTypesRequest(project=project_id, zone=zone)
         pager = client.list(request=request)
@@ -183,7 +195,31 @@ class GCPProvider(BaseCloudProvider):
                 raise ValueError("GCP project selection is required. Aborting.")
 
             selected_project_id = answers["project_id"]
-            return GCPCloudDetail(project_id=selected_project_id)
+
+            regions = cls.get_regions(selected_project_id, credentials)
+            region_questions = [
+                inquirer.List(
+                    "region",
+                    message="Select a GCP region",
+                    choices=regions,
+                ),
+            ]
+            answers = inquirer.prompt(region_questions)
+            if not answers or not answers.get("region"):
+                raise ValueError("GCP region selection is required. Aborting.")
+
+            selected_region = answers["region"]
+
+            zones = cls.get_zones(selected_project_id, selected_region, credentials)
+            if not zones:
+                raise ValueError(f"No zones found for region '{selected_region}'.")
+
+            # For now, just use the first zone.
+            selected_zone = zones[0]
+
+            return GCPCloudDetail(
+                project_id=selected_project_id, region=selected_region, zone=selected_zone
+            )
 
         except DefaultCredentialsError as e:
             raise CloudCredentialsError(

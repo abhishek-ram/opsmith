@@ -57,6 +57,7 @@ class MachineTypeList(BaseModel):
 
 class BaseCloudProviderDetail(BaseModel):
     name: str = Field(..., description="Provider name")
+    region: str = Field(..., description="The cloud provider region for this environment.")
 
 
 class CloudProviderRegistry:
@@ -160,7 +161,7 @@ class BaseCloudProvider(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_instance_types(self, region: str) -> "MachineTypeList":
+    def get_instance_types(self) -> "MachineTypeList":
         """
         Retrieves a list of available instance types for the given region.
         """
@@ -173,11 +174,3 @@ class BaseCloudProvider(abc.ABC):
         """
         self.provider_detail = TypeAdapter(self.get_detail_model()).validate_python(provider_detail)
         self.provider_detail_dump = self.provider_detail.model_dump(mode="json", exclude={"name"})
-
-    @abc.abstractmethod
-    def get_regions(self) -> List[Tuple[str, str]]:
-        """
-        Retrieves a list of available regions for the cloud provider.
-        Returns a list of tuples, where each tuple contains the display name and the region code.
-        """
-        raise NotImplementedError

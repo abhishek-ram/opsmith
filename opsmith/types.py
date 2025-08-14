@@ -7,7 +7,11 @@ from pydantic import BaseModel, Field, model_validator
 from rich import print
 
 from opsmith.cloud_providers import CLOUD_PROVIDER_REGISTRY
-from opsmith.cloud_providers.base import BaseCloudProvider, CpuArchitectureEnum
+from opsmith.cloud_providers.base import (
+    BaseCloudProvider,
+    BaseCloudProviderDetail,
+    CpuArchitectureEnum,
+)
 from opsmith.exceptions import MonolithicDeploymentError
 from opsmith.settings import settings
 
@@ -171,7 +175,6 @@ class DeploymentEnvironment(BaseModel):
         ..., description="The name of the environment (e.g., 'staging', 'production')."
     )
     cloud_provider: dict = Field(..., description="Cloud provider specific details.")
-    region: str = Field(..., description="The cloud provider region for this environment.")
     strategy: str = Field(..., description="The deployment strategy for this environment.")
     domain_email: Optional[str] = Field(
         None,
@@ -192,9 +195,14 @@ class DeploymentEnvironment(BaseModel):
 
     @property
     def cloud_provider_instance(self) -> BaseCloudProvider:
-        """Retrieves a cloud provider instance by name."""
+        """Retrieves a cloud provider instance for the environment."""
         provider_cls = CLOUD_PROVIDER_REGISTRY.get_provider_class(self.cloud_provider.get("name"))
         return provider_cls(self.cloud_provider)
+
+    @property
+    def cloud_provider_detail(self) -> BaseCloudProviderDetail:
+        """Retrieves the cloud provider details for the environment."""
+        return self.cloud_provider_instance.provider_detail
 
 
 class DeploymentConfig(ServiceList):
@@ -261,6 +269,9 @@ class VirtualMachineState(BaseModel):
         ..., description="The CPU architecture of the virtual machine."
     )
     public_ip: str = Field(..., description="The public IP address of the virtual machine.")
+    private_ip: Optional[str] = Field(
+        ..., description="The private IP address of the virtual machine."
+    )
     user: str = Field(..., description="The SSH user for the virtual machine.")
     instance_id: str = Field(..., description="The ID of the virtual machine instance.")
 
